@@ -1,4 +1,4 @@
-# Krispr
+# K-PROB
 
 ## Kmer-based In silico promoter bashing
 
