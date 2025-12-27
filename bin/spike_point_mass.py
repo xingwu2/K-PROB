@@ -79,7 +79,7 @@ def sample_beta(y,C_alpha,H,beta,gamma,sigma_1,sigma_e,H_beta):
 			H_beta = H_beta_negj + H[:,j] * beta[j]
 	return(beta,H_beta)
 
-def sampling(verbose,y,C,HapDM,iters,prefix,num,trace_container,gamma_container,beta_container,alpha_container):
+def sampling(verbose,y,C,HapDM,iters,prefix,num,trace_container,gamma_container,beta_container,alpha_container,pi_b):
 
 	## set random seed for the process
 	np.random.seed(int(time.time()) + os.getpid())
@@ -92,7 +92,7 @@ def sampling(verbose,y,C,HapDM,iters,prefix,num,trace_container,gamma_container,
 	H_r,H_c = H.shape
 	##specify hyper parameters
 	pie_a = 1
-	pie_b = H_c / 100
+	pie_b = H_c *pi_b
 	a_sigma = 1
 	b_sigma = 1
 	a_e = 1

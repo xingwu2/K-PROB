@@ -11,6 +11,29 @@ import sys
 from scipy.sparse import csc_matrix
 from numba import njit
 
+@njit(cache=True, fastmath=True)
+def sample_gamma_numba(beta, sigma_0, sigma_1, pi0, gamma):
+	inv_s0 = 1.0 / sigma_0
+	inv_s1 = 1.0 / sigma_1
+	
+	c0 = inv_s0 / math.sqrt(2.0 * math.pi)
+	c1 = inv_s1 / math.sqrt(2.0 * math.pi)
+
+	a0 = 0.5 * inv_s0 * inv_s0
+	a1 = 0.5 * inv_s1 * inv_s1
+	
+	for i in range(beta.size):
+		b = beta[i]
+		# densities
+		d0 = (1.0 - pi0) * c0 * math.exp(-b * b * a0)
+		d1 = pi0* c1 * math.exp(-b * b * a1)
+
+		post = d1 / (d0 + d1)    # posterior P(gamma=1 | beta)
+		gamma[i] = 1 if np.random.random() < post else 0
+
+	return(gamma)
+
+
 def sample_gamma(beta,sigma_0,sigma_1,pie):
 	p = np.empty(len(beta))
 	d1 = pie*sp.stats.norm.pdf(beta,loc=0,scale=sigma_1)
@@ -61,6 +84,7 @@ def sample_alpha(y,H_beta,C_alpha,C,alpha,sigma_e,C_norm_2):
 			C_alpha = C_alpha_negi + C[:,i] * alpha[i]
 
 	return(alpha,C_alpha)
+
 
 def sample_beta(y,C_alpha,H_beta,H,beta,gamma,sigma_0,sigma_1,sigma_e,H_norm_2):
 
@@ -161,7 +185,7 @@ def sample_beta_sparse(y, C_alpha, H_beta, H, beta, gamma, sigma_0, sigma_1, sig
 	return (beta, H_beta)
 
 
-def sampling(verbose,y,C,HapDM,sig0_initiate,iters,prefix,num,trace_container,gamma_container,beta_container,alpha_container):
+def sampling(verbose,y,C,HapDM,sig0_initiate,iters,prefix,num,trace_container,gamma_container,beta_container,alpha_container,pi_b):
 
 	## set random seed for the process
 	np.random.seed(int(time.time()) + os.getpid())
@@ -174,7 +198,7 @@ def sampling(verbose,y,C,HapDM,sig0_initiate,iters,prefix,num,trace_container,ga
 
 	##specify hyper parameters
 	pie_a = 1
-	pie_b = H_c / 100
+	pie_b = H_c * pi_b
 	a_sigma = 1
 	b_sigma = 1
 	a_e = 1
@@ -231,9 +255,9 @@ def sampling(verbose,y,C,HapDM,sig0_initiate,iters,prefix,num,trace_container,ga
 		else:
 			pie = sample_pie(gamma,pie_a,pie_b)
 		sigma_e = sample_sigma_e(y,H_beta,C_alpha,a_e,b_e)
+		#gamma = sample_gamma_numba(beta,sigma_0,sigma_1,pie,gamma)
 		gamma = sample_gamma(beta,sigma_0,sigma_1,pie)
 		alpha,C_alpha = sample_alpha(y,H_beta,C_alpha,C,alpha,sigma_e,C_norm_2)
-		start = time.time()
 		#beta,H_beta = sample_beta(y,C_alpha,H_beta,H,beta,gamma,sigma_0,sigma_1,sigma_e,H_norm_2)
 		#print("old",beta[5:10],H_beta[5:10])
 		beta,H_beta = sample_beta_numba(y,C_alpha,H_beta,H,beta,gamma,sigma_0,sigma_1,sigma_e,H_norm_2)
@@ -245,7 +269,7 @@ def sampling(verbose,y,C,HapDM,sig0_initiate,iters,prefix,num,trace_container,ga
 		total_heritability = genetic_var / pheno_var
 
 		after = time.time()
-		if (it > 500 and total_heritability > 1) or (it > 500 and sum(gamma)<0):
+		if (it > 1000 and total_heritability > 1) or (it > 1000 and sum(gamma)<0):
 			print(num,it,str(after - before),sigma_1,sigma_e,large_beta_ratio,total_heritability,sum(gamma))
 			continue
 

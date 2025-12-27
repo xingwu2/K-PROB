@@ -40,7 +40,8 @@ def parse_arguments():
 	parser.add_argument('-y',type = str, action = 'store', dest = 'pheno',help = "the response variable for the mapping step")
 
 	parser.add_argument('-m',type = int, action = 'store', dest = 'model',default = 1, help = "the statistical model for kmer effect estimation. Krispr offers two spike priors 1 (default): small effect around 0; 2: point mass at 0")
-	parser.add_argument('-s0',type = float, action = 'store', dest = 's0',default = 0.01, help = "the proportion of phenotypic variation explained by background kmers")
+	parser.add_argument('-s0',type = float, action = 'store', dest = 's0',default = 0.1, help = "the proportion of phenotypic variation explained by background kmers")
+	parser.add_argument('-b',type = float, action = 'store', dest = 'pi_b',default = 0.01, help = "pi_b for the beta distribution")
 	parser.add_argument('-n',type = int, action = 'store', default = 8, dest = "num",help = "the number of threads for kmer counting / MCMC chains. Recommend at least 5")
 	parser.add_argument('-v',action = 'store_true', dest = 'verbose',default = False, help = "print out each MCMC iteration")
 	parser.add_argument('-o',type = str, action = 'store', dest = 'output',help = "the prefix of the output files")

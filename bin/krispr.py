@@ -82,13 +82,13 @@ def main():
 
 		if args.model == 1:
 			for num in range(args.num):
-				p = mp.Process(target = sp_normal.sampling,args=(args.verbose,y,C,X,args.s0,12000,args.output,num,trace_container,gamma_container,beta_container,alpha_container))
+				p = mp.Process(target = sp_normal.sampling,args=(args.verbose,y,C,X,args.s0,12000,args.output,num,trace_container,gamma_container,beta_container,alpha_container,args.pi_b))
 				processes.append(p)
 				p.start()
 
 		else:
 			for num in range(args.num):
-				p = mp.Process(target = sp_pointmass.sampling, args=(args.verbose,y,C,X,12000,args.output,num,trace_container,gamma_container,beta_container,alpha_container))
+				p = mp.Process(target = sp_pointmass.sampling, args=(args.verbose,y,C,X,12000,args.output,num,trace_container,gamma_container,beta_container,alpha_container,args.pi_b))
 				processes.append(p)
 				p.start()
 
