@@ -273,6 +273,8 @@ def read_input_files(geno, pheno,covar):
 
 	kmer_names = np.array(X.columns.values.tolist())
 
+	X_nparray = np.array(X,dtype=np.uint32)
+
 	y = []
 	with open(str(pheno),"r") as f:
 		for line in f:
@@ -290,7 +292,7 @@ def read_input_files(geno, pheno,covar):
 		C =  pd.read_csv(str(covar),sep=",")
 		covariate_names =  np.array(C.columns.values.tolist())
 		C = np.array(C)
-	return(y,X,kmer_names,C,covariate_names)
+	return(y,X_nparray,kmer_names,C,covariate_names)
 
 def fdr_calculation(kmer_pip_median):
 
@@ -354,6 +356,22 @@ def merge_welford(A_mean, A_M2,A_n,B_mean,B_M2,B_n):
     M2 = A_M2 + B_M2 + (delta * delta) * (A_n * B_n / n_new)
 
     return(mean,M2,n_new)
+
+
+
+def col_norm2_chunked(H, chunk_rows=2000, out_dtype=np.float64):
+	n, p = H.shape
+	out = np.zeros(p, dtype=out_dtype)
+
+	for s in range(0, n, chunk_rows):
+		block = H[s:s+chunk_rows, :].astype(np.float32, copy=False)
+		# sum of squares per column for this block
+		out += np.einsum('ij,ij->j', block, block)
+
+	return(out)
+
+
+
 
 
 		

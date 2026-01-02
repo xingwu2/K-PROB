@@ -187,13 +187,13 @@ def sample_beta_sparse(y, C_alpha, H_beta, H, beta, gamma, sigma_0, sigma_1, sig
 	return (beta, H_beta)
 
 
-def sampling(verbose,y,C,HapDM,sig0_initiate,prefix,num,trace_container,gamma_container,beta_container,alpha_container,convergence_container,pi_b):
+def sampling(verbose,y,C,H,sig0_initiate,prefix,num,trace_container,gamma_container,beta_container,alpha_container,convergence_container,pi_b):
 
 	## set random seed for the process
 	np.random.seed(int(time.time()) + os.getpid())
 
-	#initiate beta,gamma and H matrix
-	H = np.array(HapDM)
+	# #initiate beta,gamma and H matrix
+	# H = np.array(HapDM)
 
 	H_r,H_c = H.shape
 	C_c = C.shape[1]
@@ -249,8 +249,7 @@ def sampling(verbose,y,C,HapDM,sig0_initiate,prefix,num,trace_container,gamma_co
 	## precompute some variables 
 
 	C_norm_2 = np.sum(C**2,axis=0)
-	H_norm_2 = np.sum(H**2,axis=0)
-
+	H_norm_2 = uf.col_norm2_chunked(H, chunk_rows=2000)
 
 	while it < convergence_iter:
 		before = time.time()
