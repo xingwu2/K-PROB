@@ -133,7 +133,6 @@ def main():
 					gamma_all_chains.append(gamma_container[num])
 
 			trace_posterior_all_chains = np.vstack(trace_posterior_all_chains)
-			print(trace_posterior_all_chains.shape)
 			trace_posterior = np.mean(trace_posterior_all_chains,axis=0)
 			trace_posterior_sd = np.std(trace_posterior_all_chains,axis=0)
 

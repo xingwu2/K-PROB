@@ -321,7 +321,7 @@ def sampling(verbose,y,C,HapDM,sig0_initiate,prefix,num,trace_container,gamma_co
 
 			it += 1
 
-			if it > 20000: 
+			if it > 100000: 
 				convergence_container[num] = 0
 				break
 
