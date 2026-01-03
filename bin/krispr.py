@@ -69,6 +69,9 @@ def main():
 
 	elif args.task == "mapping":
 
+		if args.verbose > 0:
+			print(mp.get_start_method())
+
 		## The following script will perform the mapping algorithm to identify the causal 
 
 		y, X, kmer_names,C, covariate_names = uf.read_input_files(args.geno,args.pheno,args.covar)

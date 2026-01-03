@@ -269,7 +269,10 @@ def sampling(verbose,y,C,H,sig0_initiate,prefix,num,trace_container,gamma_contai
 		large_beta = np.absolute(beta) > 0.3
 		large_beta_ratio = np.sum(large_beta) / len(beta)
 		total_heritability = genetic_var / pheno_var
-		alpha_norm = np.linalg.norm(alpha, ord=2)
+		if C_c == 1:
+			alpha_norm = alpha
+		else:
+			alpha_norm = np.linalg.norm(alpha, ord=2)
 		beta_norm = np.linalg.norm(beta, ord=2)
 
 		after = time.time()
@@ -361,7 +364,10 @@ def sampling(verbose,y,C,H,sig0_initiate,prefix,num,trace_container,gamma_contai
 			large_beta = np.absolute(beta) > 0.3
 			large_beta_ratio = np.sum(large_beta) / len(beta)
 			total_heritability = genetic_var / pheno_var
-			alpha_norm = np.linalg.norm(alpha, ord=2)
+			if C_c == 1:
+				alpha_norm = alpha
+			else:
+				alpha_norm = np.linalg.norm(alpha, ord=2)
 			beta_norm = np.linalg.norm(beta, ord=2)
 			after = time.time()
 			if total_heritability > 1:
