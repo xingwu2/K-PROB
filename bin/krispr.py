@@ -69,8 +69,7 @@ def main():
 
 	elif args.task == "mapping":
 
-		if args.verbose > 0:
-			print(mp.get_start_method())
+		print("multiprocessing method:",mp.get_start_method())
 
 		## The following script will perform the mapping algorithm to identify the causal 
 
