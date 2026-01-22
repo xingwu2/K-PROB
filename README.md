@@ -13,7 +13,7 @@ We highly recommend users to use mamba for installation
 
 ```mamba env create -f environment.yml```
 
-```conda activate krispr```
+```conda activate kprob```
 
 ### Command line of K-PROB
 
@@ -48,12 +48,12 @@ options:
 ### Usage Step 1
 This is the **first** step of K-PROB, it takes a fasta file and identifies unique kmers and then cluster them and generate a kmer cluster dosage matrix
 
-```python3 krispr.py -t count -f promoter.fa -k kmer_size  -o output```
+```python3 kprob.py -t count -f promoter.fa -k kmer_size  -o output```
 
 ### Usage Step 2
 This is the **second** step of K-PROB, it takes the kmer cluster dosage matrix and an expression vector as input files, and run the regression model to identify putitative causal kmer clusters
 
-```python3 krispr.py -t mapping -x DosageMatrix.txt -y expression.txt -o output```
+```python3 kprob.py -t mapping -x DosageMatrix.txt -y expression.txt -o output```
 
 ### Contact Info
 Wei Wei (doublevi123_at_gmail.com) / Xing Wu (wuxingtom_at_gmail.com)
