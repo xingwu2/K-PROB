@@ -16,7 +16,7 @@ from scipy.sparse import csr_matrix, csc_matrix, lil_matrix
 
 import geweke
 
-
+print("Finished importing libraries.")
 
 def parse_arguments():
 	"""
