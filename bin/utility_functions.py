@@ -12,11 +12,9 @@ from sklearn.neighbors import kneighbors_graph
 from scipy.spatial.distance import pdist, squareform
 import time
 from collections import defaultdict
-from scipy.sparse import csr_matrix, csc_matrix, lil_matrix
+from scipy.sparse import coo_matrix, csr_matrix, csc_matrix, lil_matrix, save_npz
 
 import geweke
-
-print("Finished importing libraries.")
 
 def parse_arguments():
 	"""
@@ -202,6 +200,50 @@ def generate_DM(sequences,sorted_kmers,k,n):
 
 	return(sequence_names,DM_matrix)
 
+def generate_DM_sparse(sequences,sorted_kmers,k,n):
+	start_time = time.time()
+
+	r = len(sequences)
+	c = len(sorted_kmers)
+	sequence_names = list(sequences.keys())
+
+	# Create a lookup dictionary for kmer positions
+	kmer_to_index = {kmer: idx for idx, kmer in enumerate(sorted_kmers)}
+	print(f"Processing {r} sequences for {c} kmers...")
+
+	rows = []
+	cols = []
+	data = []
+
+	for i, seq_name in enumerate(sequence_names):
+		if i > 0 and i % 1000 == 0:
+					print(f"Processed {i}/{r} sequences...")
+		
+		sequence = sequences[seq_name]
+		kmer_counts = defaultdict(int)
+
+		start = 0
+		end = start + k
+
+		while( start < len(sequence) - k + 1):
+			current_kmer = sequence[start:end]
+			idx = kmer_to_index.get(current_kmer)
+			if idx is None:
+				sys.exit("ERROR: FOUND A KMER that does not exist in the sequence")
+			kmer_counts[idx] += 1
+
+			start = start + 1 + n
+			end = start + k
+		for idx, count in kmer_counts.items():
+			rows.append(i)
+			cols.append(idx)
+			data.append(count)
+	
+	DM_matrix = coo_matrix((data, (rows, cols)), shape=(r, c), dtype=np.uint32).tocsr()
+	elapsed_time = time.time() - start_time
+	print(f"Finished counting unique kmer dosage for all sequences in {elapsed_time:.2f} seconds.")
+	return(sequence_names,DM_matrix)
+
 
 def generation_cluster_DM(dosage,output):
 
@@ -253,12 +295,13 @@ def generation_cluster_DM(dosage,output):
 	# elapsed_time = time.time() - start_time
 	# print(f"Finished calculating kmer cluster dosage matrix in {elapsed_time:.2f} seconds.")
 
-	dosage_sparse = csc_matrix(dosage,dtype=np.int32)
+	#dosage_sparse = csc_matrix(dosage,dtype=np.int32)
 	#cluster_map_sparse = csr_matrix(cluster_map,dtype=np.int32)
 	cluster_map_sparse = cluster_map.tocsr()
 
 
-	cluster_dosage_1 = dosage_sparse.dot(cluster_map_sparse)
+	#cluster_dosage_1 = dosage_sparse.dot(cluster_map_sparse)
+	cluster_dosage_1 = dosage.dot(cluster_map_sparse)
 	cluster_dosage_1_np = np.matrix(cluster_dosage_1.toarray())
 	elapsed_time = time.time() - start_time
 

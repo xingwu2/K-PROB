@@ -12,6 +12,7 @@ import kmer_clustering as cluster
 import multiprocessing as mp
 import spike_point_mass as sp_pointmass
 import spike_normal as sp_normal
+from scipy.sparse import save_npz
 
 def main():
 
@@ -19,7 +20,7 @@ def main():
 
 	args = uf.parse_arguments()
 
-	if args.task == "count":
+	if args.task == "preprocessing":
 
 		## STEP 1: Read multi-fasta file and store them in a dict
 
@@ -46,7 +47,7 @@ def main():
 
 		## STEP 4: generate the kmer design matrix for each sequence, the number indicates the dosage of kmer and kmer_clusters
 
-		sequence_names,dosage = uf.generate_DM(sequences,sorted_kmers,args.k,args.gap)
+		sequence_names,dosage = uf.generate_DM_sparse(sequences,sorted_kmers,args.k,args.gap)
 
 		cluster_dosage,cluster_names = uf.generation_cluster_DM(dosage,args.output)
 
