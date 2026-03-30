@@ -26,7 +26,11 @@ def main():
 
 		sequences = uf.read_fasta_file(args.sequence)
 
-		## STEP 2: identify unique kmers from the sequences and sort Kmers based on frequency and lexicography
+		## STEP 2: gather basic information about the sequences, such as sequence length, GC content and N content
+
+		GC_content, CG_density, CHG_density, CHH_density, length, CG_obs_exp = uf.gather_sequence_info(sequences)
+
+		## STEP 3: identify unique kmers from the sequences and sort Kmers based on frequency and lexicography
 
 		kmer_counts = uf.count_kmers_from_seq(sequences,args.k,args.gap)
 		print("Finished counting unique k-mers. Identified %d unique kmers in total" %(len(kmer_counts)))
@@ -38,14 +42,14 @@ def main():
 			print("%s\n%s" %(">kmer_"+str(i),sorted_kmers[i]),file = OUTPUT_UNIQUE_KMERS)
 		OUTPUT_UNIQUE_KMERS.close()
 
-		## STEP 3: perform sequence based clustering on unique kmers (default = True)
+		## STEP 4: perform sequence based clustering on unique kmers (default = True)
 
 		similarity = 1-(1.0/float(args.k)) - 0.01
 
 		kmer_clusters = cluster.cdhit_cluster(args.output+"_unique_kmers.fa",args.output+"_kmer_clusters",similarity,args.wordsize)
 
 
-		## STEP 4: generate the kmer design matrix for each sequence, the number indicates the dosage of kmer and kmer_clusters
+		## STEP 5: generate the kmer design matrix for each sequence, the number indicates the dosage of kmer and kmer_clusters
 
 		sequence_names,dosage = uf.generate_DM_sparse(sequences,sorted_kmers,args.k,args.gap)
 

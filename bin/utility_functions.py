@@ -413,11 +413,64 @@ def col_norm2_chunked(H, chunk_rows=2000, out_dtype=np.float64):
 
 	return(out)
 
+def compute_sequence_context_doublestrand(sequences):
 
+	low_complexity_sequences = {}
+	GC_content = {}
+	CG_density = {}
+	CHH_density = {}
+	CHG_density = {}
+	length = {}
+	CG_obs_exp = {}
 
+	for name in sequences:
+		seq = sequences[name].upper()
+		rc = str(Seq(seq).reverse_complement())
+		L = len(seq)
+		length[name] = L
 
+		C_count = seq.count("C")
+		G_count = seq.count("G")
 
-		
+		CG_f, CHG_f, CHH_f = count_contexts_per_seq(seq)
+		CG_r, CHG_r, CHH_r = count_contexts_per_seq(rc)
+
+		# strand-invariant totals
+		CG_total = CG_f + CG_r
+		CHG_total = CHG_f + CHG_r
+		CHH_total = CHH_f + CHH_r
+		expected_CG = (C_count * G_count) / L
+
+		GC_content[name] = (C_count + G_count) / L
+		CG_density[name] = CG_total / (2 * (L - 1)) 
+		CHG_density[name] = CHG_total / (2 * (L - 2)) 
+		CHH_density[name] = CHH_total / (2 * (L - 2))
+		CG_obs_exp[name] = CG_f / expected_CG if expected_CG > 0 else 0
+
+	return(GC_content, CG_density, CHG_density, CHH_density, length, CG_obs_exp)
+
+def count_contexts_per_seq(sequence):
+	seq = sequence.upper() ## all upper case
+	seq_length = len(seq)
+
+	CG = 0
+	CHG = 0
+	CHH = 0
+
+	for i in range(seq_length - 1):
+		if seq[i] == "C" and seq[i+1] == "G":
+			CG += 1
+	
+	for i in range(seq_length - 2):
+		tri = seq[i:i+3] # the tri-nucleotide context
+		if "N" in tri:
+			continue
+		if tri[0] == "C":
+			if tri[1] in "ACT" and tri[2] == "G":
+				CHG += 1
+			elif tri[1] in "ACT" and tri[2] in "ACT":
+				CHH += 1
+	return(CG,CHG,CHH)
 
 
 
