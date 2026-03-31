@@ -20,7 +20,7 @@ def main():
 
 	args = uf.parse_arguments()
 
-	if args.task == "preprocessing":
+	if args.task == "count":
 
 		## STEP 1: Read multi-fasta file and store them in a dict
 
@@ -28,7 +28,21 @@ def main():
 
 		## STEP 2: gather basic information about the sequences, such as sequence length, GC content and N content
 
-		GC_content, CG_density, CHG_density, CHH_density, length, CG_obs_exp = uf.gather_sequence_info(sequences)
+		GC_content, CG_density, CHG_density, CHH_density, length,low_complexity_fraction,CG_obs_exp,CHG_obs_exp,CHH_obs_exp = uf.compute_sequence_context_doublestrand(sequences)
+
+		df = pd.DataFrame({
+			'Length': length,
+			'GC_content': GC_content,
+			'CG_density': CG_density,
+			'CHG_density': CHG_density,
+			'CHH_density': CHH_density,
+			'CG_obs_exp': CG_obs_exp,
+			'CHG_obs_exp': CHG_obs_exp,
+			'CHH_obs_exp': CHH_obs_exp,
+			'Low_complexity_fraction': low_complexity_fraction
+		})
+		df = df.reset_index(names='Sequence_name')
+		df.to_csv(args.output + "_promoter_features.csv", index=False)
 
 		## STEP 3: identify unique kmers from the sequences and sort Kmers based on frequency and lexicography
 

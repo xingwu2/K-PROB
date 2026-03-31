@@ -13,6 +13,7 @@ from scipy.spatial.distance import pdist, squareform
 import time
 from collections import defaultdict
 from scipy.sparse import coo_matrix, csr_matrix, csc_matrix, lil_matrix, save_npz
+import pydustmasker
 
 import geweke
 
@@ -415,13 +416,16 @@ def col_norm2_chunked(H, chunk_rows=2000, out_dtype=np.float64):
 
 def compute_sequence_context_doublestrand(sequences):
 
-	low_complexity_sequences = {}
+	low_complexity_fraction = {}
 	GC_content = {}
 	CG_density = {}
 	CHH_density = {}
 	CHG_density = {}
 	length = {}
 	CG_obs_exp = {}
+	CHH_obs_exp = {}
+	CHG_obs_exp = {}
+
 
 	for name in sequences:
 		seq = sequences[name].upper()
@@ -429,8 +433,16 @@ def compute_sequence_context_doublestrand(sequences):
 		L = len(seq)
 		length[name] = L
 
-		C_count = seq.count("C")
-		G_count = seq.count("G")
+		# base counts (forward strand)
+		C = seq.count("C")
+		G = seq.count("G")
+		A = seq.count("A")
+		T = seq.count("T")
+		H_f = A + C + T
+
+		# reverse-strand mono-nucleotide counts
+		C_r, G_r = G, C
+		H_r = T + G + A
 
 		CG_f, CHG_f, CHH_f = count_contexts_per_seq(seq)
 		CG_r, CHG_r, CHH_r = count_contexts_per_seq(rc)
@@ -439,37 +451,48 @@ def compute_sequence_context_doublestrand(sequences):
 		CG_total = CG_f + CG_r
 		CHG_total = CHG_f + CHG_r
 		CHH_total = CHH_f + CHH_r
-		expected_CG = (C_count * G_count) / L
-
-		GC_content[name] = (C_count + G_count) / L
+		
+		GC_content[name] = (C + G) / L
 		CG_density[name] = CG_total / (2 * (L - 1)) 
 		CHG_density[name] = CHG_total / (2 * (L - 2)) 
 		CHH_density[name] = CHH_total / (2 * (L - 2))
+		
+		## low complexity fraction
+		masker = pydustmasker.DustMasker(seq)
+		low_complexity_fraction[name] = masker.n_masked_bases / L
+
+
+		## expected vs observed for CG, CHG and CHH
+
+		## CG
+		expected_CG = (C * G) * (L-1) / L / L
 		CG_obs_exp[name] = CG_f / expected_CG if expected_CG > 0 else 0
 
-	return(GC_content, CG_density, CHG_density, CHH_density, length, CG_obs_exp)
+
+		## CHG
+		expected_CHG_f = (C * H_f * G * (L - 2)) / (L ** 3)
+		expected_CHG_r = (C_r * H_r * G_r * (L - 2)) / (L ** 3)
+		expected_CHG_total = expected_CHG_f + expected_CHG_r
+		CHG_obs_exp[name] = CHG_total / expected_CHG_total if expected_CHG_total > 0 else 0
+
+		## CHH
+		expected_CHH_f = (C * (H_f ** 2) * (L - 2)) / (L ** 3)
+		expected_CHH_r = (C_r * (H_r ** 2) * (L - 2)) / (L ** 3)
+		expected_CHH_total = expected_CHH_f + expected_CHH_r
+		CHH_obs_exp[name] = CHH_total / expected_CHH_total if expected_CHH_total > 0 else 0
+
+	return(GC_content, CG_density, CHG_density, CHH_density, length,low_complexity_fraction,CG_obs_exp,CHG_obs_exp,CHH_obs_exp)
+
+_RE_CHG = re.compile(r'(?=(C[ACT]G))')
+_RE_CHH = re.compile(r'(?=(C[ACT][ACT]))')
 
 def count_contexts_per_seq(sequence):
-	seq = sequence.upper() ## all upper case
-	seq_length = len(seq)
+	SEQ = sequence.upper() ## all upper case
 
-	CG = 0
-	CHG = 0
-	CHH = 0
+	CG  = SEQ.count("CG")                     # fast C routine
+	CHG = len(_RE_CHG.findall(SEQ))           # overlapping matches
+	CHH = len(_RE_CHH.findall(SEQ))
 
-	for i in range(seq_length - 1):
-		if seq[i] == "C" and seq[i+1] == "G":
-			CG += 1
-	
-	for i in range(seq_length - 2):
-		tri = seq[i:i+3] # the tri-nucleotide context
-		if "N" in tri:
-			continue
-		if tri[0] == "C":
-			if tri[1] in "ACT" and tri[2] == "G":
-				CHG += 1
-			elif tri[1] in "ACT" and tri[2] in "ACT":
-				CHH += 1
 	return(CG,CHG,CHH)
 
 
