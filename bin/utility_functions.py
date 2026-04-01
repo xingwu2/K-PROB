@@ -4,6 +4,7 @@ import numpy as np
 import sys
 import pandas as pd
 import os
+import array
 from Bio.Seq import Seq
 from sklearn import metrics
 from sklearn.cluster import DBSCAN
@@ -201,7 +202,51 @@ def generate_DM(sequences,sorted_kmers,k,n):
 
 	return(sequence_names,DM_matrix)
 
-def generate_DM_sparse(sequences,sorted_kmers,k,n):
+# def generate_DM_sparse(sequences,sorted_kmers,k,n):
+# 	start_time = time.time()
+
+# 	r = len(sequences)
+# 	c = len(sorted_kmers)
+# 	sequence_names = list(sequences.keys())
+
+# 	# Create a lookup dictionary for kmer positions
+# 	kmer_to_index = {kmer: idx for idx, kmer in enumerate(sorted_kmers)}
+# 	print(f"Processing {r} sequences for {c} kmers...")
+
+# 	rows = []
+# 	cols = []
+# 	data = []
+
+# 	for i, seq_name in enumerate(sequence_names):
+# 		if i > 0 and i % 1000 == 0:
+# 					print(f"Processed {i}/{r} sequences...")
+		
+# 		sequence = sequences[seq_name]
+# 		kmer_counts = defaultdict(int)
+
+# 		start = 0
+# 		end = start + k
+
+# 		while( start < len(sequence) - k + 1):
+# 			current_kmer = sequence[start:end]
+# 			idx = kmer_to_index.get(current_kmer)
+# 			if idx is None:
+# 				sys.exit("ERROR: FOUND A KMER that does not exist in the sequence")
+# 			kmer_counts[idx] += 1
+
+# 			start = start + 1 + n
+# 			end = start + k
+# 		for idx, count in kmer_counts.items():
+# 			rows.append(i)
+# 			cols.append(idx)
+# 			data.append(count)
+	
+# 	DM_matrix = coo_matrix((data, (rows, cols)), shape=(r, c), dtype=np.uint16).tocsr()
+# 	elapsed_time = time.time() - start_time
+# 	print(f"Finished counting unique kmer dosage for all sequences in {elapsed_time:.2f} seconds.")
+# 	return(sequence_names,DM_matrix)
+
+def generate_DM_sparse_optimized(sequences,sorted_kmers,k,n):
 	start_time = time.time()
 
 	r = len(sequences)
@@ -212,9 +257,13 @@ def generate_DM_sparse(sequences,sorted_kmers,k,n):
 	kmer_to_index = {kmer: idx for idx, kmer in enumerate(sorted_kmers)}
 	print(f"Processing {r} sequences for {c} kmers...")
 
-	rows = []
-	cols = []
-	data = []
+	# --- MEMORY OPTIMIZATION ---
+	# 'H' = uint16 (Max count of 65,535 per kmer)
+	# 'i' = int32  (Max 2.14 billion unique kmers/columns)
+	# 'q' = int64  (Prevents matrix collapse when total non-zero elements > 2.14 billion)
+	data = array.array('H')     
+	indices = array.array('i')
+	indptr = array.array('q', [0]) # Always starts at 0
 
 	for i, seq_name in enumerate(sequence_names):
 		if i > 0 and i % 1000 == 0:
@@ -223,35 +272,106 @@ def generate_DM_sparse(sequences,sorted_kmers,k,n):
 		sequence = sequences[seq_name]
 		kmer_counts = defaultdict(int)
 
-		start = 0
-		end = start + k
-
-		while( start < len(sequence) - k + 1):
-			current_kmer = sequence[start:end]
-			idx = kmer_to_index.get(current_kmer)
-			if idx is None:
+		for s in range(0, len(sequence) - k + 1, n + 1):
+			kmer = sequence[s:s+k]
+			if kmer in kmer_to_index:
+				kmer_counts[kmer_to_index[kmer]] += 1
+			else:
 				sys.exit("ERROR: FOUND A KMER that does not exist in the sequence")
-			kmer_counts[idx] += 1
 
-			start = start + 1 + n
-			end = start + k
 		for idx, count in kmer_counts.items():
-			rows.append(i)
-			cols.append(idx)
+			indices.append(idx)
 			data.append(count)
+		
+		indptr.append(len(indices))
+
+	np_data = np.frombuffer(data, dtype=np.uint16)
+	np_indices = np.frombuffer(indices, dtype=np.int32)
+	np_indptr = np.frombuffer(indptr, dtype=np.int64)
+
+	del data, indices, indptr
 	
-	DM_matrix = coo_matrix((data, (rows, cols)), shape=(r, c), dtype=np.uint32).tocsr()
+	DM_matrix = csr_matrix((np_data, np_indices, np_indptr), shape=(r, c))
 	elapsed_time = time.time() - start_time
 	print(f"Finished counting unique kmer dosage for all sequences in {elapsed_time:.2f} seconds.")
 	return(sequence_names,DM_matrix)
 
 
-def generation_cluster_DM(dosage,output):
+# def generation_cluster_DM(dosage,output):
+
+# 	start_time = time.time()
+
+# 	file = output + "_kmer_clusters.clstr"
+# 	cluster = {}
+
+# 	with open(file,"r") as FILE:
+# 		for line in FILE:
+
+# 			line = line.strip("\n")
+
+# 			## search for > for the header
+
+# 			if line.startswith(">"):
+# 				name = line[1:]
+# 				name = name.replace(" ", "_")
+
+# 				if name not in cluster:
+# 					cluster[name] = []
+# 				else:
+# 					sys.exit("ERROR: There are duplicated cluster names. Please double check! ")
+
+# 			else:
+# 				if name is None:
+# 					sys.exit("ERROR: The cd-hit cluster output format is incorrect.")
+
+# 				match = re.search(r"kmer_(\d+)",line)
+# 				if match:
+# 					cluster[name].append(int(match.group(1)))
+# 				else:
+# 					sys.exit("ERROR: incorrect regex.")
+
+# 	r,c = dosage.shape
+# 	cluster_count = len(cluster)
+# 	cluster_names = list(cluster.keys())
+
+# 	# Create a binary cluster mapping matrix
+# 	#cluster_map = np.zeros((c, cluster_count), dtype=int)
+# 	cluster_map = lil_matrix((c, cluster_count), dtype=np.int8)
+
+# 	for idx, key in enumerate(cluster_names):
+# 		cluster_indices = np.array(cluster[key])
+# 		cluster_map[cluster_indices, idx] = 1  # Mark k-mers in each cluster
+
+# 	# cluster_dosage = dosage @ cluster_map
+
+# 	# elapsed_time = time.time() - start_time
+# 	# print(f"Finished calculating kmer cluster dosage matrix in {elapsed_time:.2f} seconds.")
+
+# 	#dosage_sparse = csc_matrix(dosage,dtype=np.int32)
+# 	#cluster_map_sparse = csr_matrix(cluster_map,dtype=np.int32)
+# 	cluster_map_sparse = cluster_map.tocsr()
+
+
+# 	#cluster_dosage_1 = dosage_sparse.dot(cluster_map_sparse)
+# 	cluster_dosage_1 = dosage.dot(cluster_map_sparse)
+# 	cluster_dosage_1_np = np.matrix(cluster_dosage_1.toarray())
+# 	elapsed_time = time.time() - start_time
+
+# 	print(f"Finished calculating kmer cluster dosage matrix in {elapsed_time:.2f} seconds.")
+
+# 	return(cluster_dosage_1_np,cluster_names)
+
+def generation_cluster_DM_optimized(dosage,output):
 
 	start_time = time.time()
 
 	file = output + "_kmer_clusters.clstr"
-	cluster = {}
+	cluster_names = []
+	seen_names = set()
+
+	rows = array.array('i')
+	cols = array.array('i')
+	current_cluster_idx = -1
 
 	with open(file,"r") as FILE:
 		for line in FILE:
@@ -264,51 +384,38 @@ def generation_cluster_DM(dosage,output):
 				name = line[1:]
 				name = name.replace(" ", "_")
 
-				if name not in cluster:
-					cluster[name] = []
-				else:
+				if name in seen_names:
 					sys.exit("ERROR: There are duplicated cluster names. Please double check! ")
+				seen_names.add(name)
+				cluster_names.append(name)
+				current_cluster_idx += 1
+					
 
 			else:
-				if name is None:
-					sys.exit("ERROR: The cd-hit cluster output format is incorrect.")
-
 				match = re.search(r"kmer_(\d+)",line)
+
 				if match:
-					cluster[name].append(int(match.group(1)))
+					rows.append(int(match.group(1)))
+					cols.append(current_cluster_idx)
 				else:
 					sys.exit("ERROR: incorrect regex.")
 
 	r,c = dosage.shape
-	cluster_count = len(cluster)
-	cluster_names = list(cluster.keys())
+	cluster_count = len(cluster_names)
 
-	# Create a binary cluster mapping matrix
-	#cluster_map = np.zeros((c, cluster_count), dtype=int)
-	cluster_map = lil_matrix((c, cluster_count), dtype=np.int8)
+	np_rows = np.frombuffer(rows, dtype=np.int32)
+	np_cols = np.frombuffer(cols, dtype=np.int32)
+	np_data = np.ones(len(rows), dtype=np.int8)
 
-	for idx, key in enumerate(cluster_names):
-		cluster_indices = np.array(cluster[key])
-		cluster_map[cluster_indices, idx] = 1  # Mark k-mers in each cluster
-
-	# cluster_dosage = dosage @ cluster_map
-
-	# elapsed_time = time.time() - start_time
-	# print(f"Finished calculating kmer cluster dosage matrix in {elapsed_time:.2f} seconds.")
-
-	#dosage_sparse = csc_matrix(dosage,dtype=np.int32)
-	#cluster_map_sparse = csr_matrix(cluster_map,dtype=np.int32)
-	cluster_map_sparse = cluster_map.tocsr()
-
-
-	#cluster_dosage_1 = dosage_sparse.dot(cluster_map_sparse)
-	cluster_dosage_1 = dosage.dot(cluster_map_sparse)
-	cluster_dosage_1_np = np.matrix(cluster_dosage_1.toarray())
+	del rows, cols, seen_names
+	cluster_map_sparse = coo_matrix((np_data, (np_rows, np_cols)), shape=(c, cluster_count)).tocsc()
+	
+	cluster_dosage = dosage.dot(cluster_map_sparse)
 	elapsed_time = time.time() - start_time
 
 	print(f"Finished calculating kmer cluster dosage matrix in {elapsed_time:.2f} seconds.")
 
-	return(cluster_dosage_1_np,cluster_names)
+	return(cluster_dosage,cluster_names)
 
 def read_input_files(geno, pheno,covar):
 

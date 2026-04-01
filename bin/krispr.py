@@ -14,6 +14,7 @@ import spike_point_mass as sp_pointmass
 import spike_normal as sp_normal
 from scipy.sparse import save_npz
 
+
 def main():
 
 	DIR = os.path.realpath(os.path.dirname(__file__))
@@ -65,26 +66,48 @@ def main():
 
 		## STEP 5: generate the kmer design matrix for each sequence, the number indicates the dosage of kmer and kmer_clusters
 
-		sequence_names,dosage = uf.generate_DM_sparse(sequences,sorted_kmers,args.k,args.gap)
+		sequence_names,dosage = uf.generate_DM_sparse_optimized(sequences,sorted_kmers,args.k,args.gap)
 
-		cluster_dosage,cluster_names = uf.generation_cluster_DM(dosage,args.output)
+		cluster_dosage,cluster_names = uf.generation_cluster_DM_optimized(dosage,args.output)
 
 
 		## identify the kmer clusters with mimimum frequency of occurrence (default 0.01)
-		cluster_indicator = cluster_dosage > 0
-		occurance_frequency = np.sum(np.array(cluster_indicator),axis=0) / cluster_dosage.shape[0]
+		# cluster_indicator = cluster_dosage > 0
+		# occurance_frequency = np.sum(np.array(cluster_indicator),axis=0) / cluster_dosage.shape[0]
+		# col_indices = np.where(occurance_frequency > args.cutoff)[0]
+		# cluster_dosage_passed = cluster_dosage[:,col_indices]
+		# cluster_names_passed = [cluster_names[i] for i in col_indices]
+
+		# cluster_dosage_passed_pd = pd.DataFrame(cluster_dosage_passed)
+		# cluster_dosage_passed_pd.to_csv(args.output+"_Cluster_DosageMatrix_occurrence_"+str(args.cutoff)+".csv",header=cluster_names_passed,index=False)
+
+		nrows = cluster_dosage.shape[0]
+		occurrences = cluster_dosage.getnnz(axis=0)
+		occurance_frequency = occurrences / nrows
+
 		col_indices = np.where(occurance_frequency > args.cutoff)[0]
-		cluster_dosage_passed = cluster_dosage[:,col_indices]
+		print(f"Filtering down from {cluster_dosage.shape[1]} to {len(col_indices)} clusters.")
+
+		cluster_dosage_passed = cluster_dosage.tocsc()[:, col_indices]
 		cluster_names_passed = [cluster_names[i] for i in col_indices]
 
-		cluster_dosage_passed_pd = pd.DataFrame(cluster_dosage_passed)
-		cluster_dosage_passed_pd.to_csv(args.output+"_Cluster_DosageMatrix_occurrence_"+str(args.cutoff)+".csv",header=cluster_names_passed,index=False)
+		cluster_dosage_passed_csr = cluster_dosage_passed.tocsr()
+		output_filename = f"{args.output}_Cluster_DosageMatrix_occurrence_{args.cutoff}.csv"
+		print(f"Writing data to {output_filename}.")
+
+		with open(output_filename, 'w', newline='') as f:
+			f.write(",".join(cluster_names_passed) + "\n")
+			for i in range(nrows):
+				if i > 0 and i % 1000 == 0:
+					print(f"Wrote {i}/{nrows} sequences to CSV...")
+
+				row_dense = cluster_dosage_passed_csr[i].toarray()[0]
+				f.write(",".join(map(str, row_dense)) + "\n")
 		
 		if args.unique == True:
-			dosage_pd = pd.DataFrame(dosage)
-			#dosage_pd.index = sequence_names
-			dosage_pd.to_csv(args.output+"_DosageMatrix.csv",header=sorted_kmers,index=False)
-
+			output_filename = f"{args.output}_DosageMatrix.npz"
+			print(f"Saving sparse unique kmer dosage matrix to {output_filename}...")
+			save_npz(output_filename, dosage.tocsr())
 
 	elif args.task == "mapping":
 
