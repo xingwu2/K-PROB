@@ -69,18 +69,8 @@ def main():
 		sequence_names,dosage = uf.generate_DM_sparse_optimized(sequences,sorted_kmers,args.k,args.gap)
 
 		cluster_dosage,cluster_names = uf.generation_cluster_DM_optimized(dosage,args.output)
-
-
-		## identify the kmer clusters with mimimum frequency of occurrence (default 0.01)
-		# cluster_indicator = cluster_dosage > 0
-		# occurance_frequency = np.sum(np.array(cluster_indicator),axis=0) / cluster_dosage.shape[0]
-		# col_indices = np.where(occurance_frequency > args.cutoff)[0]
-		# cluster_dosage_passed = cluster_dosage[:,col_indices]
-		# cluster_names_passed = [cluster_names[i] for i in col_indices]
-
-		# cluster_dosage_passed_pd = pd.DataFrame(cluster_dosage_passed)
-		# cluster_dosage_passed_pd.to_csv(args.output+"_Cluster_DosageMatrix_occurrence_"+str(args.cutoff)+".csv",header=cluster_names_passed,index=False)
-
+		
+		## STEP 6: filter out clusters that are present in less than a certain percentage of sequences (default = 0.01)
 		nrows = cluster_dosage.shape[0]
 		occurrences = cluster_dosage.getnnz(axis=0)
 		occurance_frequency = occurrences / nrows
@@ -95,6 +85,8 @@ def main():
 		output_filename = f"{args.output}_Cluster_DosageMatrix_occurrence_{args.cutoff}.csv"
 		print(f"Writing data to {output_filename}.")
 
+		## STEP 7: write the dosage matrix to a csv file
+		
 		with open(output_filename, 'w', newline='') as f:
 			f.write(",".join(cluster_names_passed) + "\n")
 			for i in range(nrows):
