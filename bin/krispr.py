@@ -121,10 +121,6 @@ def main():
 		gene_level_metadata[["Gene","alpha_i"]].to_csv(args.output+"_gene_expression_baseline.csv",index=False)
 		gene_level_metadata[["Gene"]+promoter_feature_cols].to_csv(args.output+"_gene_level_promoter_features.csv",index=False)
 
-
-
-
-		
 	elif args.task == "mapping":
 
 		print("multiprocessing method:",mp.get_start_method())
