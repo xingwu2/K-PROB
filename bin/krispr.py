@@ -13,6 +13,7 @@ import multiprocessing as mp
 import spike_point_mass as sp_pointmass
 import spike_normal as sp_normal
 from scipy.sparse import save_npz
+import scipy.sparse as sp
 
 
 def main():
@@ -42,8 +43,8 @@ def main():
 			'CHH_obs_exp': CHH_obs_exp,
 			'Low_complexity_fraction': low_complexity_fraction
 		})
-		df = df.reset_index(names='Sequence_name')
-		df.to_csv(args.output + "_promoter_features.csv", index=False)
+		df = df.reset_index(names='Allele')
+		df.to_csv(args.output + "_allele_level_promoter_features.csv", index=False)
 
 		## STEP 3: identify unique kmers from the sequences and sort Kmers based on frequency and lexicography
 
@@ -59,7 +60,7 @@ def main():
 
 		## STEP 4: perform sequence based clustering on unique kmers (default = True)
 
-		similarity = 1-(1.0/float(args.k)) - 0.01
+		similarity = 1-(args.similarity/float(args.k)) - 0.01
 
 		kmer_clusters = cluster.cdhit_cluster(args.output+"_unique_kmers.fa",args.output+"_kmer_clusters",similarity,args.wordsize)
 
@@ -82,25 +83,48 @@ def main():
 		cluster_names_passed = [cluster_names[i] for i in col_indices]
 
 		cluster_dosage_passed_csr = cluster_dosage_passed.tocsr()
-		output_filename = f"{args.output}_Cluster_DosageMatrix_occurrence_{args.cutoff}.csv"
-		print(f"Writing data to {output_filename}.")
-
-		## STEP 7: write the dosage matrix to a csv file
 		
-		with open(output_filename, 'w', newline='') as f:
-			f.write(",".join(cluster_names_passed) + "\n")
-			for i in range(nrows):
-				if i > 0 and i % 1000 == 0:
-					print(f"Wrote {i}/{nrows} sequences to CSV...")
+		## STEP 7: write the dosage matrix to a npz file
+		dm_matrix_filename = f"{args.output}_Cluster_DosageMatrix_{args.cutoff}.npz"
+		sp.save_npz(dm_matrix_filename, cluster_dosage_passed_csr)
 
-				row_dense = cluster_dosage_passed_csr[i].toarray()[0]
-				f.write(",".join(map(str, row_dense)) + "\n")
+		with open(f"{args.output}_gene_alleles.txt", 'w') as f:
+			f.write("\n".join(sequence_names) + "\n")
+		
+		with open(f"{args.output}_kmer_cluster_{args.cutoff}.txt", 'w') as f:
+			f.write("\n".join(cluster_names_passed) + "\n")
+		
+		# output_filename = f"{args.output}_Cluster_DosageMatrix_occurrence_{args.cutoff}.csv"
+		# print(f"Writing data to {output_filename}.")
+		# with open(output_filename, 'w', newline='') as f:
+		# 	f.write(",".join(cluster_names_passed) + "\n")
+		# 	for i in range(nrows):
+		# 		if i > 0 and i % 1000 == 0:
+		# 			print(f"Wrote {i}/{nrows} sequences to CSV...")
+
+		# 		row_dense = cluster_dosage_passed_csr[i].toarray()[0]
+		# 		f.write(",".join(map(str, row_dense)) + "\n")
 		
 		if args.unique == True:
-			output_filename = f"{args.output}_DosageMatrix.npz"
+			output_filename = f"{args.output}_DosageMatrix_occurrence_0.01.npz"
 			print(f"Saving sparse unique kmer dosage matrix to {output_filename}...")
 			save_npz(output_filename, dosage.tocsr())
 
+	elif args.task == "decompose":
+		## the following section will decompose gene expression into different components
+		## y_ij = alpha_i + gamma_ij + delta_ij indicating gene-specific baseline expression, individual specific expression and allelic difference. 
+
+		expression_promoter_df,gene_level_metadata,promoter_feature_cols = uf.expression_decompose_memory_optimized(args.dm,args.allele,args.kmer_cluster,args.expression,args.promoter_feature,args.output)
+		expression_promoter_df.to_csv(args.output+"_expression_promoter_decomposed_all.csv",index=False)
+		expression_promoter_df[["Allele", "delta_ij"]].to_csv(args.output+"_gene_expression_allelic_deviation.csv",index=False)
+		gene_level_metadata.to_csv(args.output+"_gene_level_metadata_all.csv",index=False)
+		gene_level_metadata[["Gene","alpha_i"]].to_csv(args.output+"_gene_expression_baseline.csv",index=False)
+		gene_level_metadata[["Gene"]+promoter_feature_cols].to_csv(args.output+"_gene_level_promoter_features.csv",index=False)
+
+
+
+
+		
 	elif args.task == "mapping":
 
 		print("multiprocessing method:",mp.get_start_method())

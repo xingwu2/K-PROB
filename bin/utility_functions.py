@@ -13,42 +13,106 @@ from sklearn.neighbors import kneighbors_graph
 from scipy.spatial.distance import pdist, squareform
 import time
 from collections import defaultdict
-from scipy.sparse import coo_matrix, csr_matrix, csc_matrix, lil_matrix, save_npz
+from scipy.sparse import coo_matrix, csr_matrix, csc_matrix, lil_matrix, save_npz, load_npz
 import pydustmasker
+import h5py
 
 import geweke
 
+# def parse_arguments():
+# 	"""
+#     Parse command line arguments.
+#     """
+# 	parser = argparse.ArgumentParser()
+
+# 	parser.add_argument('-t',type = str, action = 'store', dest = 'task',required=True, help = "count, decompose or mapping")
+# 	parser.add_argument('-o',type = str, action = 'store', dest = 'output',required=True, help = "the prefix of the output files")
+
+# 	## arguments for task = count
+
+# 	parser.add_argument('-f',type = str, action= 'store',dest='sequence',required=True, help='the multi-fasta file')
+# 	parser.add_argument('-k',type = int, action= 'store',dest='k',required=True,help = "size of the kmer")
+	
+# 	parser.add_argument('-g',type = int, action = 'store', dest = 'gap',default=0,help = "the number of nucleotide gap between 2 kmers")
+# 	parser.add_argument('-l',type = float, action = 'store', dest = "cutoff",default = 0.01,help = "a separate DM matrix with the minimum occurrence frequency for a kmer/kmer cluster to be included in the  mapping (default:0.01)")
+# 	parser.add_argument('-u',action = 'store_true', dest = 'unique',default = False, help = "output the unique kmer dosage matrix (default: false)")
+# 	parser.add_argument('-w',type = int, action = 'store', dest = 'wordsize',default=5,help = "the wordsize for cd-hit-est")
+# 	parser.add_argument('-s',type = int, action = 'store', dest = 'mismatch',default=1,help = "number of mismatches allowed in the kmer for cd-ht-est to cluster unique kmers (default: 1)")
+
+# 	## arguments for task = decompose
+# 	parser.add_argument('-d',type = str, action = 'store', dest = 'dm', required=True, help = "the clustered dosage matrix from the count task")
+# 	parser.add_argument('-p',type = str, action = 'store', dest = 'promoter_feature', required=True, help = "the promoter feature table from the count task")
+# 	parser.add_argument('-e',type = str, action = 'store', dest = 'expression', required=True, help = "the gene expression table with individual, gene and allele information")
+
+# 	## arguments for task = mapping
+
+# 	parser.add_argument('-x',type = str, action = 'store', dest = 'geno',help = "the input matrix (X) for the mapping step")
+# 	parser.add_argument('-c',type = str, action = 'store', dest = 'covar',help = "the covariates (C) for the mapping step")
+# 	parser.add_argument('-y',type = str, action = 'store', dest = 'pheno',help = "the response variable for the mapping step")
+
+# 	parser.add_argument('-m',type = int, action = 'store', dest = 'model',default = 1, help = "the statistical model for kmer effect estimation. Krispr offers two spike priors 1 (default): small effect around 0; 2: point mass at 0")
+# 	parser.add_argument('-s0',type = float, action = 'store', dest = 's0',default = 0.1, help = "the proportion of phenotypic variation explained by background kmers")
+# 	parser.add_argument('-b',type = float, action = 'store', dest = 'pi_b',default = 0.1, help = "pi_b for the beta distribution")
+# 	parser.add_argument('-n',type = int, action = 'store', default = 8, dest = "num",help = "the number of threads for kmer counting / MCMC chains. Recommend at least 5")
+# 	parser.add_argument('-v',type = int, action = 'store', default = 0, dest = 'verbose', help = "verbose levels 0: no stdout; 1: convergence and minimal stdout; 2: per MCMC iteration stdout")
+	
+# 	args = parser.parse_args()
+
+# 	return(args)
+
 def parse_arguments():
 	"""
-    Parse command line arguments.
-    """
-	parser = argparse.ArgumentParser()
-	parser.add_argument('-f',type = str, action= 'store',dest='sequence',help='the multi-fasta file')
-	parser.add_argument('-k',type = int, action= 'store',dest='k',default=7,help = "size of the kmer")
-	parser.add_argument('-g',type = int, action = 'store', dest = 'gap',default=0,help = "the number of nucleotide gap between 2 kmers")
-	parser.add_argument('-l',type = float, action = 'store', dest = "cutoff",default = 0.01,help = "a separate DM matrix with the minimum occurrence frequency for a kmer/kmer cluster to be included in the  mapping (default:0.01)")
+	Parse command line arguments using subparsers for distinct tasks.
+	"""
+	# 1. Create a base parser for global arguments to avoid repeating them
+	# add_help=False is necessary here so the subcommands can handle help normally
+	base_parser = argparse.ArgumentParser(add_help=False)
+	base_parser.add_argument('-o', type=str, action='store', dest='output', required=True, 
+							 help="the prefix of the output files")
+	
+	parser = argparse.ArgumentParser(description="Krispr Pipeline")
+
+	# dest='task' acts exactly like your old -t argument. 
+	# It stores the chosen subparser name (count, decompose, or mapping) into args.task
+	subparsers = parser.add_subparsers(dest='task', required=True, help="Task to execute")
+
+	# ---------------------------------------------------------
+	# SUBCOMMAND 1: COUNT
+	# ---------------------------------------------------------
+	parser_count = subparsers.add_parser('count', parents=[base_parser], help="Run the count task")
+	parser_count.add_argument('-f', type=str, action='store', dest='sequence', required=True, help='the multi-fasta file')
+	parser_count.add_argument('-k', type=int, action='store', dest='k', required=True, help="size of the kmer")
+	parser_count.add_argument('-g', type=int, action='store', dest='gap', default=0, help="nucleotide gap between 2 kmers. Default: 0")
+	parser_count.add_argument('-l', type=float, action='store', dest="cutoff", default=0.01, help="minimum occurrence frequency. Default: 0.01")
+	parser_count.add_argument('-u', action='store_true', dest='unique', default=False, help="output unique kmer dosage matrix. Default: false")
+	parser_count.add_argument('-w', type=int, action='store', dest='wordsize', default=5, help="wordsize for cd-hit-est. Default: 5")
+	parser_count.add_argument('-s', type=float, action='store', dest='similarity', default=1.0, help="number of mismatches allowed in the kmer for cd-ht-est to cluster unique kmers. Default: 1")
+
+	# ---------------------------------------------------------
+	# SUBCOMMAND 2: DECOMPOSE
+	# ---------------------------------------------------------
+	parser_decompose = subparsers.add_parser('decompose', parents=[base_parser], help="Run the decompose task")
+	parser_decompose.add_argument('-d', type=str, action='store', dest='dm', required=True, help="clustered dosage matrix .npz file from the count task")
+	parser_decompose.add_argument('-a', type=str, action='store', dest='allele', required=True, help="gene alleles.txt from the count task")
+	parser_decompose.add_argument('-r', type=str, action='store', dest='kmer_cluster', required=True, help="kmer_cluster_{cutoff}.txt from the count task")
+	parser_decompose.add_argument('-p', type=str, action='store', dest='promoter_feature', required=True, help="allele-level promoter feature table")
+	parser_decompose.add_argument('-e', type=str, action='store', dest='expression', required=True, help="gene expression table")
 
 
-	parser.add_argument('-t',type = str, action = 'store', dest = 'task',help = "count | mapping")
-	parser.add_argument('-u',action = 'store_true', dest = 'unique',default = False, help = "output the unique kmer dosage matrix (default: false)")
-
-
-	parser.add_argument('-w',type = int, action = 'store', dest = 'wordsize',default=5,help = "the wordsize for cd-hit-est")
-	parser.add_argument('-s',type = float, action = 'store', dest = 'similarity',default=0.9,help = "the similarity cutoff for cd-hit-est")
-
-	parser.add_argument('-x',type = str, action = 'store', dest = 'geno',help = "the input matrix (X) for the mapping step")
-	parser.add_argument('-c',type = str, action = 'store', dest = 'covar',help = "the covariates (C) for the mapping step")
-	parser.add_argument('-y',type = str, action = 'store', dest = 'pheno',help = "the response variable for the mapping step")
-
-	parser.add_argument('-m',type = int, action = 'store', dest = 'model',default = 1, help = "the statistical model for kmer effect estimation. Krispr offers two spike priors 1 (default): small effect around 0; 2: point mass at 0")
-	parser.add_argument('-s0',type = float, action = 'store', dest = 's0',default = 0.1, help = "the proportion of phenotypic variation explained by background kmers")
-	parser.add_argument('-b',type = float, action = 'store', dest = 'pi_b',default = 0.1, help = "pi_b for the beta distribution")
-	parser.add_argument('-n',type = int, action = 'store', default = 8, dest = "num",help = "the number of threads for kmer counting / MCMC chains. Recommend at least 5")
-	parser.add_argument('-v',type = int, action = 'store', default = 0, dest = 'verbose', help = "verbose levels 0: no stdout; 1: convergence and minimal stdout; 2: per MCMC iteration stdout")
-	parser.add_argument('-o',type = str, action = 'store', dest = 'output',help = "the prefix of the output files")
+	# ---------------------------------------------------------
+	# SUBCOMMAND 3: MAPPING
+	# ---------------------------------------------------------
+	parser_mapping = subparsers.add_parser('mapping', parents=[base_parser], help="Run the mapping task")
+	parser_mapping.add_argument('-x', type=str, action='store', dest='geno', required=True, help="input matrix (X)")
+	parser_mapping.add_argument('-c', type=str, action='store', dest='covar', help="covariates (C)")
+	parser_mapping.add_argument('-y', type=str, action='store', dest='pheno', required=True, help="gene expression values")
+	parser_mapping.add_argument('-m', type=int, action='store', dest='model', default=1, help="statistical model (1) two normal mixture (2) point mass at 0. Default: 1)")
+	parser_mapping.add_argument('-s0', type=float, action='store', dest='s0', default=0.1, help="proportion of phenotypic variation explained. Default: 0.1")
+	parser_mapping.add_argument('-b', type=float, action='store', dest='pi_b', default=0.1, help="pi_b for the beta distribution. Default: 0.1")
+	parser_mapping.add_argument('-n', type=int, action='store', dest='num', default=8, help="number of threads. Recommend at least 5. Default: 8)")
+	parser_mapping.add_argument('-v', type=int, action='store', default=0, dest='verbose',help="verbose levels 0: no stdout; 1: minimal; 2: detailed. Default: 0)")
 	args = parser.parse_args()
-
-	return(args)
+	return args
 
 def read_fasta_file(file):
 
@@ -202,50 +266,6 @@ def generate_DM(sequences,sorted_kmers,k,n):
 
 	return(sequence_names,DM_matrix)
 
-# def generate_DM_sparse(sequences,sorted_kmers,k,n):
-# 	start_time = time.time()
-
-# 	r = len(sequences)
-# 	c = len(sorted_kmers)
-# 	sequence_names = list(sequences.keys())
-
-# 	# Create a lookup dictionary for kmer positions
-# 	kmer_to_index = {kmer: idx for idx, kmer in enumerate(sorted_kmers)}
-# 	print(f"Processing {r} sequences for {c} kmers...")
-
-# 	rows = []
-# 	cols = []
-# 	data = []
-
-# 	for i, seq_name in enumerate(sequence_names):
-# 		if i > 0 and i % 1000 == 0:
-# 					print(f"Processed {i}/{r} sequences...")
-		
-# 		sequence = sequences[seq_name]
-# 		kmer_counts = defaultdict(int)
-
-# 		start = 0
-# 		end = start + k
-
-# 		while( start < len(sequence) - k + 1):
-# 			current_kmer = sequence[start:end]
-# 			idx = kmer_to_index.get(current_kmer)
-# 			if idx is None:
-# 				sys.exit("ERROR: FOUND A KMER that does not exist in the sequence")
-# 			kmer_counts[idx] += 1
-
-# 			start = start + 1 + n
-# 			end = start + k
-# 		for idx, count in kmer_counts.items():
-# 			rows.append(i)
-# 			cols.append(idx)
-# 			data.append(count)
-	
-# 	DM_matrix = coo_matrix((data, (rows, cols)), shape=(r, c), dtype=np.uint16).tocsr()
-# 	elapsed_time = time.time() - start_time
-# 	print(f"Finished counting unique kmer dosage for all sequences in {elapsed_time:.2f} seconds.")
-# 	return(sequence_names,DM_matrix)
-
 def generate_DM_sparse_optimized(sequences,sorted_kmers,k,n):
 	start_time = time.time()
 
@@ -295,71 +315,6 @@ def generate_DM_sparse_optimized(sequences,sorted_kmers,k,n):
 	elapsed_time = time.time() - start_time
 	print(f"Finished counting unique kmer dosage for all sequences in {elapsed_time:.2f} seconds.")
 	return(sequence_names,DM_matrix)
-
-
-# def generation_cluster_DM(dosage,output):
-
-# 	start_time = time.time()
-
-# 	file = output + "_kmer_clusters.clstr"
-# 	cluster = {}
-
-# 	with open(file,"r") as FILE:
-# 		for line in FILE:
-
-# 			line = line.strip("\n")
-
-# 			## search for > for the header
-
-# 			if line.startswith(">"):
-# 				name = line[1:]
-# 				name = name.replace(" ", "_")
-
-# 				if name not in cluster:
-# 					cluster[name] = []
-# 				else:
-# 					sys.exit("ERROR: There are duplicated cluster names. Please double check! ")
-
-# 			else:
-# 				if name is None:
-# 					sys.exit("ERROR: The cd-hit cluster output format is incorrect.")
-
-# 				match = re.search(r"kmer_(\d+)",line)
-# 				if match:
-# 					cluster[name].append(int(match.group(1)))
-# 				else:
-# 					sys.exit("ERROR: incorrect regex.")
-
-# 	r,c = dosage.shape
-# 	cluster_count = len(cluster)
-# 	cluster_names = list(cluster.keys())
-
-# 	# Create a binary cluster mapping matrix
-# 	#cluster_map = np.zeros((c, cluster_count), dtype=int)
-# 	cluster_map = lil_matrix((c, cluster_count), dtype=np.int8)
-
-# 	for idx, key in enumerate(cluster_names):
-# 		cluster_indices = np.array(cluster[key])
-# 		cluster_map[cluster_indices, idx] = 1  # Mark k-mers in each cluster
-
-# 	# cluster_dosage = dosage @ cluster_map
-
-# 	# elapsed_time = time.time() - start_time
-# 	# print(f"Finished calculating kmer cluster dosage matrix in {elapsed_time:.2f} seconds.")
-
-# 	#dosage_sparse = csc_matrix(dosage,dtype=np.int32)
-# 	#cluster_map_sparse = csr_matrix(cluster_map,dtype=np.int32)
-# 	cluster_map_sparse = cluster_map.tocsr()
-
-
-# 	#cluster_dosage_1 = dosage_sparse.dot(cluster_map_sparse)
-# 	cluster_dosage_1 = dosage.dot(cluster_map_sparse)
-# 	cluster_dosage_1_np = np.matrix(cluster_dosage_1.toarray())
-# 	elapsed_time = time.time() - start_time
-
-# 	print(f"Finished calculating kmer cluster dosage matrix in {elapsed_time:.2f} seconds.")
-
-# 	return(cluster_dosage_1_np,cluster_names)
 
 def generation_cluster_DM_optimized(dosage,output):
 
@@ -508,8 +463,6 @@ def merge_welford(A_mean, A_M2,A_n,B_mean,B_M2,B_n):
 
     return(mean,M2,n_new)
 
-
-
 def col_norm2_chunked(H, chunk_rows=2000, out_dtype=np.float64):
 	n, p = H.shape
 	out = np.zeros(p, dtype=out_dtype)
@@ -601,6 +554,207 @@ def count_contexts_per_seq(sequence):
 	CHH = len(_RE_CHH.findall(SEQ))
 
 	return(CG,CHG,CHH)
+
+
+# def expression_decompose(dm,allele,kmer_cluster,expression,promoter_feature):
+# 	## load expression data, genotype data and gene features
+# 	mat = load_npz(dm)
+# 	alleles = pd.read_csv(allele, header=None, names=["Allele"])
+# 	kmer_clusters = pd.read_csv(kmer_cluster, header=None)[0].tolist()
+
+# 	dosage_df = pd.DataFrame.sparse.from_spmatrix(mat, columns=kmer_clusters)
+# 	dosage_df.index = alleles["Allele"]
+	
+# 	expression = pd.read_csv(expression,sep=",")
+# 	promoter_feature = pd.read_csv(promoter_feature,sep=",")
+
+# 	## first run some QC on the input data
+# 	expression_column_names = expression.columns.to_list()
+# 	if expression_column_names != ["Individual","Gene","Allele","Expression"]:
+# 		sys.exit("ERROR: The expression table should have the EXACT following columns and column names: Individual, Gene, Allele, Expression")
+# 	if sum(promoter_feature["Allele"] != expression["Allele"]) > 0:
+# 		sys.exit("ERROR: The gene-allele names in the promoter feature table do not match the gene-allele names in the expression table. Please double check! ")
+# 	if dosage_df.index.to_list() != expression["Allele"].tolist():
+# 		sys.exit("ERROR: The gene-allele names in the dosage matrix do not match the gene-allele names in the expression table. Please double check! ")
+# 	## concat expression and promoter feature
+# 	expression_promoter_df = pd.concat([expression, promoter_feature.drop(columns=["Allele"])], axis=1)
+
+# 	print("finished QC and all tables are in order. Starting expression decomposition...")
+# 	print("\n")
+
+# 	## expression decompose y_ij = \mu + \alpha_i  + \gamma_j + \delta_ij 
+# 	## mu: grand mean
+# 	## alpha_i gene specific baseline
+# 	## gamma_j individual global effect
+# 	## delta_ij allele specific effect that is the residual after removing the gene baseline and individual global effect.
+
+# 	## delta_ij = y_ij - \mu - \alpha_i  - \gamma_j
+
+# 	## first calculate the delta_ij and double centered X_double_centered
+# 	expression_mu = expression_promoter_df["Expression"].mean()
+# 	expression_promoter_df['alpha_i'] = expression_promoter_df.groupby('Gene')['Expression'].transform('mean') - expression_mu
+# 	expression_promoter_df['gamma_j'] = expression_promoter_df.groupby('Individual')['Expression'].transform('mean') - expression_mu
+# 	expression_promoter_df['delta_ij'] = expression_promoter_df['Expression'] - expression_mu - expression_promoter_df['alpha_i'] - expression_promoter_df['gamma_j']
+# 	expression_promoter_df['per_genes_sd'] = expression_promoter_df.groupby("Gene")["delta_ij"].transform("std")
+# 	#safe_sd = expression_promoter_df['per_genes_sd'].fillna(1.0)
+# 	eps = 1e-4
+# 	safe_sd = expression_promoter_df["per_genes_sd"].fillna(1.0).clip(lower=eps)
+# 	expression_promoter_df['delta_ij_scaled'] = expression_promoter_df['delta_ij'] / safe_sd
+# 	## double center the dosage matrix by gene and individual
+	
+# 	gene_array = expression_promoter_df['Gene'].values
+# 	ind_array = expression_promoter_df['Individual'].values
+# 	kmer_mu = dosage_df.mean()
+# 	kmer_gene_mean = dosage_df.groupby(gene_array).transform('mean')
+# 	kmer_ind_mean = dosage_df.groupby(ind_array).transform('mean')
+# 	dosage_double_centered = dosage_df - kmer_gene_mean - kmer_ind_mean + kmer_mu
+	
+# 	print("Finished calculating the allelic deviation and double centered kmer cluster matrix")
+# 	print("\n")
+
+
+# 	## next calculate the the gene baseline, gene-specific promoter features, and X_baseline
+# 	X_baseline = dosage_df.groupby(gene_array).mean()
+# 	X_baseline_centered = X_baseline - X_baseline.mean()
+
+# 	promoter_feature_cols = [col for col in promoter_feature.columns if col != "Allele"]
+# 	cols_to_aggregate = ['alpha_i'] + promoter_feature_cols
+# 	gene_level_metadata = expression_promoter_df.groupby('Gene')[cols_to_aggregate].mean()
+# 	if gene_level_metadata.index.to_list() != X_baseline.index.to_list():
+# 		sys.exit("ERROR: The gene names in the collapsed metadata do not match the gene names in the X_baseline matrix. Please double check!")
+	
+# 	print("Finished calculating the gene baseline expression and gene-leevel promoter features.")
+# 	print("\n")
+
+# 	return(dosage_double_centered,expression_promoter_df, X_baseline_centered, gene_level_metadata)
+
+def expression_decompose_memory_optimized(dm, allele, kmer_cluster, expression, promoter_feature,output):
+	## load expression data, genotype data and gene features
+	mat = load_npz(dm)
+	alleles = pd.read_csv(allele, header=None, names=["Allele"])
+	kmer_clusters = pd.read_csv(kmer_cluster, header=None)[0].tolist()
+
+	dosage_df = pd.DataFrame.sparse.from_spmatrix(mat, columns=kmer_clusters)
+	dosage_df.index = alleles["Allele"]
+	
+	# Safely renamed to prevent overwriting the string arguments
+	expr_df = pd.read_csv(expression, sep=",")
+	promoter_feat_df = pd.read_csv(promoter_feature, sep=",")
+
+	## first run some QC on the input data
+	expression_column_names = expr_df.columns.to_list()
+	if expression_column_names != ["Individual", "Gene", "Allele", "Expression"]:
+		sys.exit("ERROR: The expression table should have the EXACT following columns and column names: Individual, Gene, Allele, Expression")
+	if sum(promoter_feat_df["Allele"] != expr_df["Allele"]) > 0:
+		sys.exit("ERROR: The gene-allele names in the promoter feature table do not match the gene-allele names in the expression table. Please double check! ")
+	if dosage_df.index.to_list() != expr_df["Allele"].tolist():
+		sys.exit("ERROR: The gene-allele names in the dosage matrix do not match the gene-allele names in the expression table. Please double check! ")
+	
+	## concat expression and promoter feature
+	expression_promoter_df = pd.concat([expr_df, promoter_feat_df.drop(columns=["Allele"])], axis=1)
+
+	print("Finished QC and all tables are in order. Starting expression decomposition...\n")
+
+	## expression decompose y_ij = \mu + \alpha_i  + \gamma_j + \delta_ij 
+	expression_mu = expression_promoter_df["Expression"].mean()
+	expression_promoter_df['alpha_i'] = expression_promoter_df.groupby('Gene')['Expression'].transform('mean') - expression_mu
+	expression_promoter_df['gamma_j'] = expression_promoter_df.groupby('Individual')['Expression'].transform('mean') - expression_mu
+	expression_promoter_df['delta_ij'] = expression_promoter_df['Expression'] - expression_mu - expression_promoter_df['alpha_i'] - expression_promoter_df['gamma_j']
+	
+	expression_promoter_df['per_genes_sd'] = expression_promoter_df.groupby("Gene")["delta_ij"].transform("std")
+	eps = 1e-4
+	safe_sd = expression_promoter_df["per_genes_sd"].fillna(1.0).clip(lower=eps)
+	expression_promoter_df['delta_ij_scaled'] = expression_promoter_df['delta_ij'] / safe_sd
+
+	print("Finished calculating the allelic deviation. Starting chunked double-centering to HDF5...\n")
+
+	## double center the dosage matrix by gene and individual IN CHUNKS
+	gene_array = expression_promoter_df['Gene'].values
+	ind_array = expression_promoter_df['Individual'].values
+	
+	n_rows = dosage_df.shape[0]
+	n_cols = dosage_df.shape[1]
+	
+	# Define your output file
+	hdf5_X_double_centered = output + "_kmer_cluster_double_centered.h5"
+	
+	with h5py.File(hdf5_X_double_centered, "w") as f:
+		dset = f.create_dataset("X_double_centered", shape=(n_rows, n_cols), dtype='float32')
+		
+		chunk_size = 1000 # Safely processes 1,000 kmers at a time
+		
+		for i in range(0, n_cols, chunk_size):
+			# 1. Slice the specific 1,000 columns
+			kmer_chunk_names = kmer_clusters[i : i + chunk_size]
+			sparse_chunk = dosage_df[kmer_chunk_names]
+			
+			# 2. Convert ONLY this small chunk to dense RAM
+			dense_chunk = sparse_chunk.sparse.to_dense()
+			
+			# 3. Calculate means just for this chunk
+			kmer_mu = dense_chunk.mean()
+			kmer_gene_mean = dense_chunk.groupby(gene_array).transform('mean')
+			kmer_ind_mean = dense_chunk.groupby(ind_array).transform('mean')
+			
+			# 4. Double center the chunk
+			centered_chunk = dense_chunk - kmer_gene_mean - kmer_ind_mean + kmer_mu
+			
+			# 5. Write the result directly into the HDF5 file and cast to float32
+			dset[:, i : i + chunk_size] = centered_chunk.values.astype(np.float32)
+			
+			print(f"Processed columns {i} to {min(i + chunk_size, n_cols)} out of {n_cols}")
+	
+	print("\nFinished calculating the double centered kmer matrix. Saved safely to disk!\n")
+
+	## next calculate the the gene baseline, gene-specific promoter features, and X_baseline
+
+	unique_genes = np.unique(expression_promoter_df['Gene'].values)
+	num_genes = len(unique_genes)
+
+	hdf5_X_baseline = output + "_kmer_cluster_baseline.h5"
+	
+	with h5py.File(hdf5_X_baseline, "w") as f:
+		dset = f.create_dataset("X_baseline", shape=(num_genes, n_cols), dtype='float32')
+		
+		chunk_size = 1000 # Safely processes 1,000 kmers at a time
+
+		for i in range(0, n_cols, chunk_size):
+			# 1. Slice the specific 1,000 columns
+			kmer_chunk_names = kmer_clusters[i : i + chunk_size]
+			sparse_chunk = dosage_df[kmer_chunk_names]
+			
+			# 2. Convert ONLY this small chunk to dense RAM
+			dense_chunk = sparse_chunk.sparse.to_dense()
+			
+			# 3. Calculate means just for this chunk
+			X_baseline_chunk = dense_chunk.groupby(gene_array).mean()
+			X_baseline_centered_chunk = X_baseline_chunk - X_baseline_chunk.mean()
+			
+			# 4. Write the result directly into the HDF5 file and cast to float32
+			dset[:, i : i + chunk_size] = X_baseline_centered_chunk.values.astype(np.float32)
+			
+			print(f"Processed columns {i} to {min(i + chunk_size, n_cols)} out of {n_cols}")
+	
+	print("\nFinished calculating the baseline centered kmer matrix. Saved safely to disk!\n")
+
+	promoter_feature_cols = [col for col in promoter_feat_df.columns if col != "Allele"]
+	cols_to_aggregate = ['alpha_i'] + promoter_feature_cols
+	gene_level_metadata = expression_promoter_df.groupby('Gene')[cols_to_aggregate].mean()
+	
+	if gene_level_metadata.index.to_list() != unique_genes.tolist():
+		sys.exit("ERROR: The gene names in the collapsed metadata do not match the gene names in the X_baseline matrix. Please double check!")
+	
+	gene_level_metadata["Gene"] = gene_level_metadata.index
+	
+	print("Finished calculating the gene baseline expression and gene-level promoter features.\n")
+
+	return (expression_promoter_df,gene_level_metadata,promoter_feature_cols)
+
+
+
+
+
+
 
 
 
