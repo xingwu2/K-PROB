@@ -20,6 +20,8 @@ def main():
 
 	DIR = os.path.realpath(os.path.dirname(__file__))
 
+	os.makedirs("./output", exist_ok=True)
+
 	args = uf.parse_arguments()
 
 	if args.task == "count":
@@ -88,10 +90,10 @@ def main():
 		dm_matrix_filename = f"{args.output}_Cluster_DosageMatrix_{args.cutoff}.npz"
 		sp.save_npz(dm_matrix_filename, cluster_dosage_passed_csr)
 
-		with open(f"{args.output}_gene_alleles.txt", 'w') as f:
+		with open(f"output/{args.output}_COUNT_gene_alleles.txt", 'w') as f:
 			f.write("\n".join(sequence_names) + "\n")
 		
-		with open(f"{args.output}_kmer_cluster_{args.cutoff}.txt", 'w') as f:
+		with open(f"output/{args.output}_COUNT_kmer_cluster_{args.cutoff}.txt", 'w') as f:
 			f.write("\n".join(cluster_names_passed) + "\n")
 		
 		# output_filename = f"{args.output}_Cluster_DosageMatrix_occurrence_{args.cutoff}.csv"
@@ -106,7 +108,7 @@ def main():
 		# 		f.write(",".join(map(str, row_dense)) + "\n")
 		
 		if args.unique == True:
-			output_filename = f"{args.output}_DosageMatrix_occurrence_0.01.npz"
+			output_filename = f"output/{args.output}_COUNT_DosageMatrix_occurrence_0.01.npz"
 			print(f"Saving sparse unique kmer dosage matrix to {output_filename}...")
 			save_npz(output_filename, dosage.tocsr())
 
@@ -115,11 +117,11 @@ def main():
 		## y_ij = alpha_i + gamma_ij + delta_ij indicating gene-specific baseline expression, individual specific expression and allelic difference. 
 
 		expression_promoter_df,gene_level_metadata,promoter_feature_cols = uf.expression_decompose_memory_optimized(args.dm,args.allele,args.kmer_cluster,args.expression,args.promoter_feature,args.output)
-		expression_promoter_df.to_csv(args.output+"_expression_promoter_decomposed_all.csv",index=False)
-		expression_promoter_df[["Allele", "delta_ij"]].to_csv(args.output+"_gene_expression_allelic_deviation.csv",index=False)
-		gene_level_metadata.to_csv(args.output+"_gene_level_metadata_all.csv",index=False)
-		gene_level_metadata[["Gene","alpha_i"]].to_csv(args.output+"_gene_expression_baseline.csv",index=False)
-		gene_level_metadata[["Gene"]+promoter_feature_cols].to_csv(args.output+"_gene_level_promoter_features.csv",index=False)
+		expression_promoter_df.to_csv("output/"+args.output+"_DECOMPOSE_expression_promoter_decomposed_all.csv",index=False)
+		expression_promoter_df[["Allele", "delta_ij_scaled"]].to_csv("output/"+args.output+"_DECOMPOSE_gene_expression_allelic_deviation.csv",index=False)
+		gene_level_metadata.to_csv("output/"+ args.output+"_DECOMPOSE_gene_level_info_all.csv",index=False)
+		gene_level_metadata[["Gene","alpha_i"]].to_csv("output/" + args.output+"_DECOMPOSE_gene_expression_baseline.csv",index=False)
+		gene_level_metadata[["Gene"]+promoter_feature_cols].to_csv("output/" + args.output+"_DECOMPOSE_gene_level_promoter_features.csv",index=False)
 
 	elif args.task == "mapping":
 

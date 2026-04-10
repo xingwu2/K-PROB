@@ -19,47 +19,6 @@ import h5py
 
 import geweke
 
-# def parse_arguments():
-# 	"""
-#     Parse command line arguments.
-#     """
-# 	parser = argparse.ArgumentParser()
-
-# 	parser.add_argument('-t',type = str, action = 'store', dest = 'task',required=True, help = "count, decompose or mapping")
-# 	parser.add_argument('-o',type = str, action = 'store', dest = 'output',required=True, help = "the prefix of the output files")
-
-# 	## arguments for task = count
-
-# 	parser.add_argument('-f',type = str, action= 'store',dest='sequence',required=True, help='the multi-fasta file')
-# 	parser.add_argument('-k',type = int, action= 'store',dest='k',required=True,help = "size of the kmer")
-	
-# 	parser.add_argument('-g',type = int, action = 'store', dest = 'gap',default=0,help = "the number of nucleotide gap between 2 kmers")
-# 	parser.add_argument('-l',type = float, action = 'store', dest = "cutoff",default = 0.01,help = "a separate DM matrix with the minimum occurrence frequency for a kmer/kmer cluster to be included in the  mapping (default:0.01)")
-# 	parser.add_argument('-u',action = 'store_true', dest = 'unique',default = False, help = "output the unique kmer dosage matrix (default: false)")
-# 	parser.add_argument('-w',type = int, action = 'store', dest = 'wordsize',default=5,help = "the wordsize for cd-hit-est")
-# 	parser.add_argument('-s',type = int, action = 'store', dest = 'mismatch',default=1,help = "number of mismatches allowed in the kmer for cd-ht-est to cluster unique kmers (default: 1)")
-
-# 	## arguments for task = decompose
-# 	parser.add_argument('-d',type = str, action = 'store', dest = 'dm', required=True, help = "the clustered dosage matrix from the count task")
-# 	parser.add_argument('-p',type = str, action = 'store', dest = 'promoter_feature', required=True, help = "the promoter feature table from the count task")
-# 	parser.add_argument('-e',type = str, action = 'store', dest = 'expression', required=True, help = "the gene expression table with individual, gene and allele information")
-
-# 	## arguments for task = mapping
-
-# 	parser.add_argument('-x',type = str, action = 'store', dest = 'geno',help = "the input matrix (X) for the mapping step")
-# 	parser.add_argument('-c',type = str, action = 'store', dest = 'covar',help = "the covariates (C) for the mapping step")
-# 	parser.add_argument('-y',type = str, action = 'store', dest = 'pheno',help = "the response variable for the mapping step")
-
-# 	parser.add_argument('-m',type = int, action = 'store', dest = 'model',default = 1, help = "the statistical model for kmer effect estimation. Krispr offers two spike priors 1 (default): small effect around 0; 2: point mass at 0")
-# 	parser.add_argument('-s0',type = float, action = 'store', dest = 's0',default = 0.1, help = "the proportion of phenotypic variation explained by background kmers")
-# 	parser.add_argument('-b',type = float, action = 'store', dest = 'pi_b',default = 0.1, help = "pi_b for the beta distribution")
-# 	parser.add_argument('-n',type = int, action = 'store', default = 8, dest = "num",help = "the number of threads for kmer counting / MCMC chains. Recommend at least 5")
-# 	parser.add_argument('-v',type = int, action = 'store', default = 0, dest = 'verbose', help = "verbose levels 0: no stdout; 1: convergence and minimal stdout; 2: per MCMC iteration stdout")
-	
-# 	args = parser.parse_args()
-
-# 	return(args)
-
 def parse_arguments():
 	"""
 	Parse command line arguments using subparsers for distinct tasks.
@@ -555,79 +514,6 @@ def count_contexts_per_seq(sequence):
 
 	return(CG,CHG,CHH)
 
-
-# def expression_decompose(dm,allele,kmer_cluster,expression,promoter_feature):
-# 	## load expression data, genotype data and gene features
-# 	mat = load_npz(dm)
-# 	alleles = pd.read_csv(allele, header=None, names=["Allele"])
-# 	kmer_clusters = pd.read_csv(kmer_cluster, header=None)[0].tolist()
-
-# 	dosage_df = pd.DataFrame.sparse.from_spmatrix(mat, columns=kmer_clusters)
-# 	dosage_df.index = alleles["Allele"]
-	
-# 	expression = pd.read_csv(expression,sep=",")
-# 	promoter_feature = pd.read_csv(promoter_feature,sep=",")
-
-# 	## first run some QC on the input data
-# 	expression_column_names = expression.columns.to_list()
-# 	if expression_column_names != ["Individual","Gene","Allele","Expression"]:
-# 		sys.exit("ERROR: The expression table should have the EXACT following columns and column names: Individual, Gene, Allele, Expression")
-# 	if sum(promoter_feature["Allele"] != expression["Allele"]) > 0:
-# 		sys.exit("ERROR: The gene-allele names in the promoter feature table do not match the gene-allele names in the expression table. Please double check! ")
-# 	if dosage_df.index.to_list() != expression["Allele"].tolist():
-# 		sys.exit("ERROR: The gene-allele names in the dosage matrix do not match the gene-allele names in the expression table. Please double check! ")
-# 	## concat expression and promoter feature
-# 	expression_promoter_df = pd.concat([expression, promoter_feature.drop(columns=["Allele"])], axis=1)
-
-# 	print("finished QC and all tables are in order. Starting expression decomposition...")
-# 	print("\n")
-
-# 	## expression decompose y_ij = \mu + \alpha_i  + \gamma_j + \delta_ij 
-# 	## mu: grand mean
-# 	## alpha_i gene specific baseline
-# 	## gamma_j individual global effect
-# 	## delta_ij allele specific effect that is the residual after removing the gene baseline and individual global effect.
-
-# 	## delta_ij = y_ij - \mu - \alpha_i  - \gamma_j
-
-# 	## first calculate the delta_ij and double centered X_double_centered
-# 	expression_mu = expression_promoter_df["Expression"].mean()
-# 	expression_promoter_df['alpha_i'] = expression_promoter_df.groupby('Gene')['Expression'].transform('mean') - expression_mu
-# 	expression_promoter_df['gamma_j'] = expression_promoter_df.groupby('Individual')['Expression'].transform('mean') - expression_mu
-# 	expression_promoter_df['delta_ij'] = expression_promoter_df['Expression'] - expression_mu - expression_promoter_df['alpha_i'] - expression_promoter_df['gamma_j']
-# 	expression_promoter_df['per_genes_sd'] = expression_promoter_df.groupby("Gene")["delta_ij"].transform("std")
-# 	#safe_sd = expression_promoter_df['per_genes_sd'].fillna(1.0)
-# 	eps = 1e-4
-# 	safe_sd = expression_promoter_df["per_genes_sd"].fillna(1.0).clip(lower=eps)
-# 	expression_promoter_df['delta_ij_scaled'] = expression_promoter_df['delta_ij'] / safe_sd
-# 	## double center the dosage matrix by gene and individual
-	
-# 	gene_array = expression_promoter_df['Gene'].values
-# 	ind_array = expression_promoter_df['Individual'].values
-# 	kmer_mu = dosage_df.mean()
-# 	kmer_gene_mean = dosage_df.groupby(gene_array).transform('mean')
-# 	kmer_ind_mean = dosage_df.groupby(ind_array).transform('mean')
-# 	dosage_double_centered = dosage_df - kmer_gene_mean - kmer_ind_mean + kmer_mu
-	
-# 	print("Finished calculating the allelic deviation and double centered kmer cluster matrix")
-# 	print("\n")
-
-
-# 	## next calculate the the gene baseline, gene-specific promoter features, and X_baseline
-# 	X_baseline = dosage_df.groupby(gene_array).mean()
-# 	X_baseline_centered = X_baseline - X_baseline.mean()
-
-# 	promoter_feature_cols = [col for col in promoter_feature.columns if col != "Allele"]
-# 	cols_to_aggregate = ['alpha_i'] + promoter_feature_cols
-# 	gene_level_metadata = expression_promoter_df.groupby('Gene')[cols_to_aggregate].mean()
-# 	if gene_level_metadata.index.to_list() != X_baseline.index.to_list():
-# 		sys.exit("ERROR: The gene names in the collapsed metadata do not match the gene names in the X_baseline matrix. Please double check!")
-	
-# 	print("Finished calculating the gene baseline expression and gene-leevel promoter features.")
-# 	print("\n")
-
-# 	return(dosage_double_centered,expression_promoter_df, X_baseline_centered, gene_level_metadata)
-
 def expression_decompose_memory_optimized(dm, allele, kmer_cluster, expression, promoter_feature,output):
 	## load expression data, genotype data and gene features
 	mat = load_npz(dm)
@@ -657,13 +543,13 @@ def expression_decompose_memory_optimized(dm, allele, kmer_cluster, expression, 
 
 	## expression decompose y_ij = \mu + \alpha_i  + \gamma_j + \delta_ij 
 	expression_mu = expression_promoter_df["Expression"].mean()
-	expression_promoter_df['alpha_i'] = expression_promoter_df.groupby('Gene')['Expression'].transform('mean') - expression_mu
-	expression_promoter_df['gamma_j'] = expression_promoter_df.groupby('Individual')['Expression'].transform('mean') - expression_mu
+	expression_promoter_df['alpha_i'] = expression_promoter_df.groupby('Gene',sort = False)['Expression'].transform('mean') - expression_mu
+	expression_promoter_df['gamma_j'] = expression_promoter_df.groupby('Individual',sort = False)['Expression'].transform('mean') - expression_mu
 	expression_promoter_df['delta_ij'] = expression_promoter_df['Expression'] - expression_mu - expression_promoter_df['alpha_i'] - expression_promoter_df['gamma_j']
 	
-	expression_promoter_df['per_genes_sd'] = expression_promoter_df.groupby("Gene")["delta_ij"].transform("std")
-	eps = 1e-4
-	safe_sd = expression_promoter_df["per_genes_sd"].fillna(1.0).clip(lower=eps)
+	expression_promoter_df['per_genes_sd'] = expression_promoter_df.groupby("Gene",sort = False)["delta_ij"].transform("std")
+	global_sd = expression_promoter_df.groupby("Gene",sort = False)['per_genes_sd'].first().median()
+	safe_sd = expression_promoter_df["per_genes_sd"].fillna(global_sd).clip(lower=global_sd*0.1)
 	expression_promoter_df['delta_ij_scaled'] = expression_promoter_df['delta_ij'] / safe_sd
 
 	print("Finished calculating the allelic deviation. Starting chunked double-centering to HDF5...\n")
@@ -671,7 +557,7 @@ def expression_decompose_memory_optimized(dm, allele, kmer_cluster, expression, 
 	## double center the dosage matrix by gene and individual IN CHUNKS
 	gene_array = expression_promoter_df['Gene'].values
 	ind_array = expression_promoter_df['Individual'].values
-	
+
 	n_rows = dosage_df.shape[0]
 	n_cols = dosage_df.shape[1]
 	
@@ -693,8 +579,8 @@ def expression_decompose_memory_optimized(dm, allele, kmer_cluster, expression, 
 			
 			# 3. Calculate means just for this chunk
 			kmer_mu = dense_chunk.mean()
-			kmer_gene_mean = dense_chunk.groupby(gene_array).transform('mean')
-			kmer_ind_mean = dense_chunk.groupby(ind_array).transform('mean')
+			kmer_gene_mean = dense_chunk.groupby(gene_array,sort = False).transform('mean')
+			kmer_ind_mean = dense_chunk.groupby(ind_array,sort = False).transform('mean')
 			
 			# 4. Double center the chunk
 			centered_chunk = dense_chunk - kmer_gene_mean - kmer_ind_mean + kmer_mu
@@ -708,8 +594,10 @@ def expression_decompose_memory_optimized(dm, allele, kmer_cluster, expression, 
 
 	## next calculate the the gene baseline, gene-specific promoter features, and X_baseline
 
-	unique_genes = np.unique(expression_promoter_df['Gene'].values)
-	num_genes = len(unique_genes)
+	unique_genes_sorted, idx = np.unique(expression_promoter_df['Gene'].values,return_index=True)
+	unique_genes_original_order = unique_genes_sorted[np.argsort(idx)]
+
+	num_genes = len(unique_genes_original_order)
 
 	hdf5_X_baseline = output + "_kmer_cluster_baseline.h5"
 	
@@ -727,7 +615,7 @@ def expression_decompose_memory_optimized(dm, allele, kmer_cluster, expression, 
 			dense_chunk = sparse_chunk.sparse.to_dense()
 			
 			# 3. Calculate means just for this chunk
-			X_baseline_chunk = dense_chunk.groupby(gene_array).mean()
+			X_baseline_chunk = dense_chunk.groupby(gene_array,sort = False).mean()
 			X_baseline_centered_chunk = X_baseline_chunk - X_baseline_chunk.mean()
 			
 			# 4. Write the result directly into the HDF5 file and cast to float32
@@ -739,12 +627,12 @@ def expression_decompose_memory_optimized(dm, allele, kmer_cluster, expression, 
 
 	promoter_feature_cols = [col for col in promoter_feat_df.columns if col != "Allele"]
 	cols_to_aggregate = ['alpha_i'] + promoter_feature_cols
-	gene_level_metadata = expression_promoter_df.groupby('Gene')[cols_to_aggregate].mean()
+	gene_level_metadata = expression_promoter_df.groupby('Gene',sort = False)[cols_to_aggregate].mean()
 	
-	if gene_level_metadata.index.to_list() != unique_genes.tolist():
+	if gene_level_metadata.index.to_list() != unique_genes_original_order.tolist():
 		sys.exit("ERROR: The gene names in the collapsed metadata do not match the gene names in the X_baseline matrix. Please double check!")
 	
-	gene_level_metadata["Gene"] = gene_level_metadata.index
+	gene_level_metadata = gene_level_metadata.reset_index()	
 	
 	print("Finished calculating the gene baseline expression and gene-level promoter features.\n")
 
