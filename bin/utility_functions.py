@@ -63,15 +63,16 @@ def parse_arguments():
 	# ---------------------------------------------------------
 	parser_mapping = subparsers.add_parser('mapping', parents=[base_parser], help="Run the mapping task")
 	parser_mapping.add_argument('-x', type=str, action='store', dest='geno', required=True, help="input matrix (X)")
+	parser_mapping.add_argument('-r', type=str, action='store', dest='kmer_cluster', required=True, help="kmer_cluster_{cutoff}.txt from the count task")
+	parser_mapping.add_argument('-m', type=int, action='store', dest='model', required = True, help="regression model that identifies kmers contributing to (1) per-gene expression baseline (2) intraspecific allelic deviation")
 	parser_mapping.add_argument('-c', type=str, action='store', dest='covar', help="covariates (C)")
 	parser_mapping.add_argument('-y', type=str, action='store', dest='pheno', required=True, help="gene expression values")
-	parser_mapping.add_argument('-m', type=int, action='store', dest='model', default=1, help="statistical model (1) two normal mixture (2) point mass at 0. Default: 1)")
-	parser_mapping.add_argument('-s0', type=float, action='store', dest='s0', default=0.1, help="proportion of phenotypic variation explained. Default: 0.1")
-	parser_mapping.add_argument('-b', type=float, action='store', dest='pi_b', default=0.1, help="pi_b for the beta distribution. Default: 0.1")
+	parser_mapping.add_argument('-s0', type=float, action='store', dest='s0', default=0.05, help="proportion of phenotypic variation explained. Default: 0.05")
+	parser_mapping.add_argument('-b', type=float, action='store', dest='pi_b', default=0.1, help="proportion of the kmer clusters are causal. Default: 0.1")
 	parser_mapping.add_argument('-n', type=int, action='store', dest='num', default=8, help="number of threads. Recommend at least 5. Default: 8)")
 	parser_mapping.add_argument('-v', type=int, action='store', default=0, dest='verbose',help="verbose levels 0: no stdout; 1: minimal; 2: detailed. Default: 0)")
 	args = parser.parse_args()
-	return args
+	return(args)
 
 def read_fasta_file(file):
 
@@ -279,7 +280,7 @@ def generation_cluster_DM_optimized(dosage,output):
 
 	start_time = time.time()
 
-	file = output + "_kmer_clusters.clstr"
+	file = "output/" + output + "_COUNT_kmer_clusters.clstr"
 	cluster_names = []
 	seen_names = set()
 
@@ -331,33 +332,144 @@ def generation_cluster_DM_optimized(dosage,output):
 
 	return(cluster_dosage,cluster_names)
 
-def read_input_files(geno, pheno,covar):
+def read_input_files_baseline(geno, kmer, pheno, covar):
 
-	X = pd.read_csv(str(geno),sep=",")
-	n,p = X.shape
-
-	kmer_names = np.array(X.columns.values.tolist())
-
-	X_nparray = np.array(X,dtype=np.uint32)
-
-	y = []
-	with open(str(pheno),"r") as f:
-		for line in f:
+	## load X matrix 
+	with h5py.File(str(geno), "r") as f:
+		data = f["X_baseline"][:]
+	
+	## load the kmer names
+	kmer_names = []
+	with open(str(kmer),"r") as KMER:
+		for line in KMER:
 			line = line.strip("\n")
-			y.append(float(line))
+			kmer_names.append(line)
+	
+	if len(kmer_names) != data.shape[1]:
+		sys.exit(f"ERROR: Kmer list length ({len(kmer_names)}) does not match X columns ({data.shape[1]})")
 
-	y = np.asarray(y)
+	col_means = np.mean(data, axis=0)
+	col_sds = np.std(data, axis=0, ddof=0)
+	print(col_means[:5],col_sds[:5])
+	zero_var_mask = (col_sds == 0)
+	col_sds_safe = np.where(zero_var_mask, 1.0, col_sds)
+	data_standardized = ((data - col_means) / col_sds_safe).astype(np.float32)
 
-	if covar is None:
-		C = np.ones(n)
-		C = C.reshape(n, 1)
-		covariate_names = ["intercept"]
+	col_means_after = np.mean(data_standardized, axis=0)
+	col_sd_after = np.std(data_standardized, axis=0, ddof=0)
+	print("after standardization:",col_means_after[:5],col_sd_after[:5])
 
+	print("Finished loading the baseline genotype matrix from disk. Starting to load the kmer names and phenotype values...\n")
+
+	## load phenotype values
+
+	y_df = pd.read_csv(str(pheno))
+	y_raw = y_df["alpha_i"].values
+	y_mean = y_raw.mean()
+	y_sd = y_raw.std(ddof=0)
+	print("y",y_mean,y_sd)
+	y = (y_raw - y_mean) / y_sd
+
+	print("after standardization:",y.mean(),y.std(ddof=0))
+
+	## load the covaraites
+	n_samples = data.shape[0]
+	C_intercept = np.ones((n_samples, 1), dtype=np.float32)
+	C_intercept_name = ["intercept"]
+
+	if covar is not None:
+		C_df = pd.read_csv(str(covar))
+		C_numeric_df = C_df.drop(columns=["Gene"])
+		covariate_names = np.array(C_numeric_df.columns.tolist())
+		C_values = C_numeric_df.values
+        
+        # Verify row count matches
+		if C_values.shape[0] != n_samples:
+			sys.exit("ERROR: Covariate row count does not match Genotype row count.")
+		if sum(C_df["Gene"].values != y_df["Gene"].values) > 0:
+			sys.exit("ERROR: The gene names in the covariate table do not match the gene names in the phenotype table. Please double check! ")
+
+		C_values_means = C_values.mean(axis=0)
+		C_values_sds = C_values.std(axis=0, ddof=0)
+		C_values_sds_safe = np.where(C_values_sds == 0, 1.0, C_values_sds)
+		C_values_scaled = ((C_values - C_values_means) / C_values_sds_safe).astype(np.float32)
+		
+		keep_covar = (C_values_sds != 0)
+		C_values_scaled = C_values_scaled[:, keep_covar]
+		covariate_names = covariate_names[keep_covar]
+		covar_sds_kept = C_values_sds[keep_covar]
+		covar_means_kept = C_values_means[keep_covar]
+             
+		C = np.hstack((C_intercept, C_values_scaled))
+		covariate_names = np.hstack((C_intercept_name, covariate_names))
 	else:
-		C =  pd.read_csv(str(covar),sep=",")
-		covariate_names =  np.array(C.columns.values.tolist())
-		C = np.array(C)
-	return(y,X_nparray,kmer_names,C,covariate_names)
+		C = C_intercept
+		covariate_names = np.array(C_intercept_name)
+
+	print("after C standardization:",C[:,1:].mean(axis=0),C[:,1:].std(axis=0,ddof=0))
+
+	return(y,y_sd,data_standardized,col_sds_safe,kmer_names,C,covariate_names)
+
+def read_input_files_allelic(geno, kmer, pheno, covar):
+
+	## load X matrix 
+	with h5py.File(str(geno), "r") as f:
+		data = f["X_allelic"][:]
+
+	## load the kmer names
+	kmer_names = []
+	with open(str(kmer),"r") as KMER:
+		for line in KMER:
+			line = line.strip("\n")
+			kmer_names.append(line)
+	
+	if len(kmer_names) != data.shape[1]:
+		sys.exit(f"ERROR: Kmer list length ({len(kmer_names)}) does not match X columns ({data.shape[1]})")
+	
+	col_means = np.mean(data, axis=0)
+	col_sds = np.std(data, axis=0, ddof=0)
+	print(col_means[:5],col_sds[:5])
+	zero_var_mask = (col_sds == 0)
+	col_sds_safe = np.where(zero_var_mask, 1.0, col_sds)
+	data_standardized = ((data - col_means) / col_sds_safe).astype(np.float32)
+	col_means_after = np.mean(data_standardized, axis=0)
+	col_sd_after = np.std(data_standardized, axis=0, ddof=0)
+	print("after standardization:",col_means_after[:5],col_sd_after[:5])
+
+	print("Finished loading the allelic genotype matrix from disk. Starting to load the kmer names and phenotype values...\n")
+
+	## load phenotype values
+
+	y_df = pd.read_csv(str(pheno))
+	y_raw = y_df["delta_ij_scaled"].values
+	y_mean = y_raw.mean()
+	y_sd = y_raw.std(ddof=0)
+	y = (y_raw - y_mean) / y_sd
+
+	## load the covaraites
+	n_samples = data.shape[0]
+	C_intercept = np.ones((n_samples, 1),dtype=np.float32)
+	C_intercept_name = ["intercept"]
+
+	if covar is not None:
+		C_df = pd.read_csv(str(covar))
+		C_numeric_df = C_df.drop(columns=["Allele"])
+		covariate_names = np.array(C_numeric_df.columns.tolist())
+		C_values = C_numeric_df.values
+        
+        # Verify row count matches
+		if C_values.shape[0] != n_samples:
+			sys.exit("ERROR: Covariate row count does not match Genotype row count.")
+		if sum(C_df["Allele"].values != y_df["Allele"].values) > 0:
+			sys.exit("ERROR: The allele names in the covariate table do not match the allele names in the phenotype table. Please double check! ")
+             
+		C = np.hstack((C_intercept, C_values))
+		covariate_names = np.hstack((C_intercept_name, covariate_names))
+	else:
+		C = C_intercept
+		covariate_names = np.array(C_intercept_name)
+	
+	return(y,y_sd,data_standardized,col_sds_safe,kmer_names,C,covariate_names)
 
 def fdr_calculation(kmer_pip_median):
 
@@ -378,49 +490,52 @@ def fdr_calculation(kmer_pip_median):
 	return(ordered_index,fdr)
 
 def convergence_geweke_test(trace,top5_beta_trace,start,end):
-    max_z = []
+	max_z = []
 
     ## convergence for the trace values
-    n = trace.shape[1]
-    for t in range(n):
-        trace_convergence = trace[start:end,t]
-        trace_t_convergence_zscores = geweke.geweke(trace_convergence)[:,1]
-        max_z.append(np.amax(np.absolute(trace_t_convergence_zscores)))
+	n = trace.shape[1]
+	for t in range(n):
+		trace_convergence = trace[start:end,t]
+		trace_t_convergence_zscores = geweke.geweke(trace_convergence)[:,1]
+		max_z.append(np.amax(np.absolute(trace_t_convergence_zscores)))
 
-    m = top5_beta_trace.shape[1]
-    for b in range(m):
-        top_beta_convergence = top5_beta_trace[start:end,b]
-        beta_b_convergence_zscores = geweke.geweke(top_beta_convergence)[:,1]
-        max_z.append(np.amax(np.absolute(beta_b_convergence_zscores)))
+	m = top5_beta_trace.shape[1]
+	for b in range(m):
+		top_beta_convergence = top5_beta_trace[start:end,b]
+		beta_b_convergence_zscores = geweke.geweke(top_beta_convergence)[:,1]
+		max_z.append(np.amax(np.absolute(beta_b_convergence_zscores)))
 
-    if np.amax(max_z) < 1.5:
-        return(1)
+	if np.amax(max_z) < 2:
+		return(1)
+	else:
+		print(max_z)
+		return(0)
 
 def welford(mean,M2,x,n):
-    n = n + 1
+	n = n + 1
 
-    delta = x - mean
-    mean += delta / n
-    delta2 = x - mean
-    M2 += delta * delta2
+	delta = x - mean
+	mean += delta / n
+	delta2 = x - mean
+	M2 += delta * delta2
 
-    return(mean,M2)
+	return(mean,M2)
 
 def merge_welford(A_mean, A_M2,A_n,B_mean,B_M2,B_n):
 
-    if A_n == 0:
-        return(B_mean,B_M2,B_n)
+	if A_n == 0:
+		return(B_mean,B_M2,B_n)
 
-    if B_n == 0:
-        return(A_mean,A_M2,A_n)
+	if B_n == 0:
+		return(A_mean,A_M2,A_n)
     
-    n_new = A_n + B_n
-    delta = B_mean - A_mean
+	n_new = A_n + B_n
+	delta = B_mean - A_mean
 
-    mean = A_mean + delta * (B_n / n_new)
-    M2 = A_M2 + B_M2 + (delta * delta) * (A_n * B_n / n_new)
+	mean = A_mean + delta * (B_n / n_new)
+	M2 = A_M2 + B_M2 + (delta * delta) * (A_n * B_n / n_new)
 
-    return(mean,M2,n_new)
+	return(mean,M2,n_new)
 
 def col_norm2_chunked(H, chunk_rows=2000, out_dtype=np.float64):
 	n, p = H.shape
@@ -562,10 +677,10 @@ def expression_decompose_memory_optimized(dm, allele, kmer_cluster, expression, 
 	n_cols = dosage_df.shape[1]
 	
 	# Define your output file
-	hdf5_X_double_centered = output + "_kmer_cluster_double_centered.h5"
+	hdf5_X_double_centered = "output/" + output + "_DECOMPOSE_kmer_cluster_allelic.h5"
 	
 	with h5py.File(hdf5_X_double_centered, "w") as f:
-		dset = f.create_dataset("X_double_centered", shape=(n_rows, n_cols), dtype='float32')
+		dset = f.create_dataset("X_allelic", shape=(n_rows, n_cols), dtype='float32')
 		
 		chunk_size = 1000 # Safely processes 1,000 kmers at a time
 		
@@ -599,7 +714,7 @@ def expression_decompose_memory_optimized(dm, allele, kmer_cluster, expression, 
 
 	num_genes = len(unique_genes_original_order)
 
-	hdf5_X_baseline = output + "_kmer_cluster_baseline.h5"
+	hdf5_X_baseline = "output/" + output + "_DECOMPOSE_kmer_cluster_baseline.h5"
 	
 	with h5py.File(hdf5_X_baseline, "w") as f:
 		dset = f.create_dataset("X_baseline", shape=(num_genes, n_cols), dtype='float32')
@@ -614,12 +729,11 @@ def expression_decompose_memory_optimized(dm, allele, kmer_cluster, expression, 
 			# 2. Convert ONLY this small chunk to dense RAM
 			dense_chunk = sparse_chunk.sparse.to_dense()
 			
-			# 3. Calculate means just for this chunk
+			# 3. Calculate means just for this chunk		
 			X_baseline_chunk = dense_chunk.groupby(gene_array,sort = False).mean()
-			X_baseline_centered_chunk = X_baseline_chunk - X_baseline_chunk.mean()
 			
 			# 4. Write the result directly into the HDF5 file and cast to float32
-			dset[:, i : i + chunk_size] = X_baseline_centered_chunk.values.astype(np.float32)
+			dset[:, i : i + chunk_size] = X_baseline_chunk.values.astype(np.float32)
 			
 			print(f"Processed columns {i} to {min(i + chunk_size, n_cols)} out of {n_cols}")
 	

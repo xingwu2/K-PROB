@@ -46,7 +46,7 @@ def main():
 			'Low_complexity_fraction': low_complexity_fraction
 		})
 		df = df.reset_index(names='Allele')
-		df.to_csv(args.output + "_allele_level_promoter_features.csv", index=False)
+		df.to_csv("output/" + args.output + "_COUNT_allele_level_promoter_features.csv", index=False)
 
 		## STEP 3: identify unique kmers from the sequences and sort Kmers based on frequency and lexicography
 
@@ -55,7 +55,7 @@ def main():
 
 		sorted_kmers = sorted(kmer_counts.keys(), key=lambda km: (-kmer_counts[km], km))
 		
-		OUTPUT_UNIQUE_KMERS = open(args.output+"_unique_kmers.fa","w")
+		OUTPUT_UNIQUE_KMERS = open("output/" + args.output+"_COUNT_unique_kmers.fa","w")
 		for i, kmer in enumerate(sorted_kmers):
 			print("%s\n%s" %(">kmer_"+str(i),sorted_kmers[i]),file = OUTPUT_UNIQUE_KMERS)
 		OUTPUT_UNIQUE_KMERS.close()
@@ -64,7 +64,7 @@ def main():
 
 		similarity = 1-(args.similarity/float(args.k)) - 0.01
 
-		kmer_clusters = cluster.cdhit_cluster(args.output+"_unique_kmers.fa",args.output+"_kmer_clusters",similarity,args.wordsize)
+		kmer_clusters = cluster.cdhit_cluster("output/" + args.output+"_COUNT_unique_kmers.fa","output/" + args.output+"_COUNT_kmer_clusters",similarity,args.wordsize)
 
 
 		## STEP 5: generate the kmer design matrix for each sequence, the number indicates the dosage of kmer and kmer_clusters
@@ -87,7 +87,7 @@ def main():
 		cluster_dosage_passed_csr = cluster_dosage_passed.tocsr()
 		
 		## STEP 7: write the dosage matrix to a npz file
-		dm_matrix_filename = f"{args.output}_Cluster_DosageMatrix_{args.cutoff}.npz"
+		dm_matrix_filename = f"output/{args.output}_COUNT_Cluster_DosageMatrix_{args.cutoff}.npz"
 		sp.save_npz(dm_matrix_filename, cluster_dosage_passed_csr)
 
 		with open(f"output/{args.output}_COUNT_gene_alleles.txt", 'w') as f:
@@ -129,7 +129,14 @@ def main():
 
 		## The following script will perform the mapping algorithm to identify the causal 
 
-		y, X, kmer_names,C, covariate_names = uf.read_input_files(args.geno,args.pheno,args.covar)
+		if args.model == 1: ## gene expression baseline mapping
+			y,y_sd,X,col_sd,kmer_names,C,covariate_names = uf.read_input_files_baseline(args.geno,args.kmer_cluster,args.pheno,args.covar)
+		elif args.model == 2: ## allelic deviation mapping
+			y,y_sd,X,col_sd,kmer_names,C,covariate_names = uf.read_input_files_allelic(args.geno,args.kmer_cluster,args.pheno,args.covar)
+
+		X = np.asfortranarray(X, dtype=np.float32)
+		C = np.ascontiguousarray(C, dtype=np.float32)
+		y = y.astype(np.float32)
 
 		trace_container = mp.Manager().dict()
 		gamma_container = mp.Manager().dict()
@@ -137,32 +144,21 @@ def main():
 		alpha_container = mp.Manager().dict()
 		convergence_container = mp.Manager().dict()
 
-
 		processes = []
 
-		if args.model == 1:
-			for num in range(args.num):
-				p = mp.Process(target = sp_normal.sampling,args=(args.verbose,y,C,X,args.s0,args.output,num,trace_container,gamma_container,beta_container,alpha_container,convergence_container,args.pi_b))
-				processes.append(p)
-				p.start()
+		for num in range(args.num):
+			p = mp.Process(target = sp_normal.sampling,args=(args.verbose,y,C,X,args.s0,args.output,num,trace_container,gamma_container,beta_container,alpha_container,convergence_container,args.pi_b))
+			processes.append(p)
+			p.start()
 
-		else:
-			for num in range(args.num):
-				p = mp.Process(target = sp_pointmass.sampling, args=(args.verbose,y,C,X,args.output,num,trace_container,gamma_container,beta_container,alpha_container,convergence_container,args.pi_b))
-				processes.append(p)
-				p.start()
+		# else:
+		# 	for num in range(args.num):
+		# 		p = mp.Process(target = sp_pointmass.sampling, args=(args.verbose,y,C,X,args.output,num,trace_container,gamma_container,beta_container,alpha_container,convergence_container,args.pi_b))
+		# 		processes.append(p)
+		# 		p.start()
 
 		for process in processes:
 			process.join()
-
-		# convergence_all_chains = []
-		# alpha_posterior = []
-		# alpha_posterior_sd = []
-		# beta_posterior = []
-		# beta_posterior_sd = []
-		# kmer_pip = []
-		# trace_posterior = []
-		# trace_posterior_sd = []
 
 		convergence_all_chains = []
 		alpha_posterior_all_chains = []
@@ -172,7 +168,7 @@ def main():
 		gamma_all_chains = []
 		trace_posterior_all_chains = []
 
-		column_names = "alpha_norm_2\tbeta_norm_2\tsigma_1\tsigma_e\tlarge_beta_ratio\ttotal_heritability\tsum_gamma"
+		column_names = "sigma_e\tlarge_beta_ratio\talpha_norm_2\tbeta_norm_2\ttotal_heritability\tsum_gamma"
 
 		for num in range(args.num):
 			convergence_all_chains.append(convergence_container[num])
@@ -219,41 +215,41 @@ def main():
 			index,kmer_fdr = uf.fdr_calculation(pip)
 			
 			## sort pip, kmer names, beta and beta_sd based on pip
-			sorted_kmer_names = kmer_names[index]
+			sorted_kmer_names = [kmer_names[i] for i in index]
 			sorted_kmer_pip = pip[index]
 			sorted_beta = beta_posterior[index]
 			sorted_beta_sd = beta_posterior_sd[index]
 
 
-			OUTPUT_TRACE = open(args.output+"_param.txt","w")
+			OUTPUT_TRACE = open("output/" + args.output+"_MAPPING_param.txt","w")
 			for i in range(len(trace_posterior)):
 				print("%s\t%f\t%f" %(column_names[i],trace_posterior[i],trace_posterior_sd[i]),file = OUTPUT_TRACE)
 					
-			OUTPUT_ALPHA = open(args.output+"_alpha.txt","w")
+			OUTPUT_ALPHA = open("output/" + args.output+"_MAPPING_alpha.txt","w")
 			for i in range(len(alpha_posterior)):
 				print("%f\t%f" %(alpha_posterior[i],alpha_posterior_sd[i]),file = OUTPUT_ALPHA)
 
-			OUTPUT_BETA = open(args.output+"_beta.txt","w")
+			OUTPUT_BETA = open("output/" + args.output+"_MAPPING_beta.txt","w")
 			print("%s\t%s\t%s\t%s\t%s" %("kmer_name","kmer_effect","kmer_effect_sd","pip","fdr"),file = OUTPUT_BETA)
 			for i in range(X.shape[1]):
 				print("%s\t%f\t%f\t%f\t%f" %(sorted_kmer_names[i],sorted_beta[i],sorted_beta_sd[i],sorted_kmer_pip[i],kmer_fdr[i]),file = OUTPUT_BETA)
 
 		else:
-			OUTPUT_TRACE = open(args.output+"_param.txt","w")
+			OUTPUT_TRACE = open("output/" + args.output+"_MAPPING_param.txt","w")
 			for i in range(len(column_names)):
 				print("%s\t%s\t%s" %(column_names[i],"NA","NA"),file = OUTPUT_TRACE)
 					
-			OUTPUT_ALPHA = open(args.output+"_alpha.txt","w")
+			OUTPUT_ALPHA = open("output/"+ args.output+"_MAPPING_alpha.txt","w")
 			for i in range(C.shape[1]):
 				print("%s\t%s\t%s" %(covariate_names[i],"NA","NA"),file = OUTPUT_ALPHA)
 
-			OUTPUT_BETA = open(args.output+"_beta.txt","w")
+			OUTPUT_BETA = open("output/" + args.output+"_MAPPING_beta.txt","w")
 			print("%s\t%s\t%s\t%s\t%s" %("kmer_name","kmer_effect","kmer_effect_sd","pip","fdr"),file = OUTPUT_BETA)
 			for i in range(X.shape[1]):
 				print("%s\t%s\t%s\t%s\t%s" %(kmer_names[i],"NA","NA","NA","NA"),file = OUTPUT_BETA)
 
 	else:
-		sys.exit("ERROR: Please provide the name of the task: count or mapping. Details see the manual (-h).")
+		sys.exit("ERROR: Please provide the name of the task: count, decompose, or mapping. Details see the manual (-h).")
 
 
 
