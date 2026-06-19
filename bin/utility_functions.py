@@ -441,7 +441,7 @@ def read_input_files_allelic(geno, kmer, pheno, covar):
 	## load phenotype values
 
 	y_df = pd.read_csv(str(pheno))
-	y_raw = y_df["delta_ij_scaled"].values
+	y_raw = y_df["delta_ij"].values
 	y_mean = y_raw.mean()
 	y_sd = y_raw.std(ddof=0)
 	y = (y_raw - y_mean) / y_sd
@@ -662,10 +662,10 @@ def expression_decompose_memory_optimized(dm, allele, kmer_cluster, expression, 
 	expression_promoter_df['gamma_j'] = expression_promoter_df.groupby('Individual',sort = False)['Expression'].transform('mean') - expression_mu
 	expression_promoter_df['delta_ij'] = expression_promoter_df['Expression'] - expression_mu - expression_promoter_df['alpha_i'] - expression_promoter_df['gamma_j']
 	
-	expression_promoter_df['per_genes_sd'] = expression_promoter_df.groupby("Gene",sort = False)["delta_ij"].transform("std")
-	global_sd = expression_promoter_df.groupby("Gene",sort = False)['per_genes_sd'].first().median()
-	safe_sd = expression_promoter_df["per_genes_sd"].fillna(global_sd).clip(lower=global_sd*0.1)
-	expression_promoter_df['delta_ij_scaled'] = expression_promoter_df['delta_ij'] / safe_sd
+	#expression_promoter_df['per_genes_sd'] = expression_promoter_df.groupby("Gene",sort = False)["delta_ij"].transform("std")
+	#global_sd = expression_promoter_df.groupby("Gene",sort = False)['per_genes_sd'].first().median()
+	#safe_sd = expression_promoter_df["per_genes_sd"].fillna(global_sd).clip(lower=global_sd*0.1)
+	#expression_promoter_df['delta_ij_scaled'] = expression_promoter_df['delta_ij'] / safe_sd
 
 	print("Finished calculating the allelic deviation. Starting chunked double-centering to HDF5...\n")
 
