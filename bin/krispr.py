@@ -168,7 +168,7 @@ def main():
 		gamma_all_chains = []
 		trace_posterior_all_chains = []
 
-		column_names = ["sigma_e","large_beta_ratio","alpha_norm_2","beta_norm_2","total_heritability","sum_gamma"]
+		column_names = ["sigma_e","beta_p99","alpha_norm_2","beta_norm_2","total_heritability","sum_gamma"]
 
 		for num in range(args.num):
 			convergence_all_chains.append(convergence_container[num])
@@ -209,7 +209,7 @@ def main():
 
 			beta_posterior_sd = np.sqrt(beta_posterior_M2/(N_beta-1))
 			alpha_posterior_sd = np.sqrt(alpha_posterior_M2/(N_alpha-1))
-			np.savetxt(args.output+"_model_trace.txt",trace_posterior_all_chains,delimiter="\t",header="\t".join(column_names))
+			np.savetxt("output/" + args.output+"_model_trace.txt",trace_posterior_all_chains,delimiter="\t",header="\t".join(column_names))
 
 			## backtransform the beta and alpha to the orignal scale
 			beta_posterior_backtransformed = beta_posterior * y_sd / col_sd
@@ -235,7 +235,7 @@ def main():
 					
 			OUTPUT_ALPHA = open("output/" + args.output+"_MAPPING_alpha.txt","w")
 			for i in range(len(alpha_posterior)):
-				print("%f\t%f" %(alpha_posterior_backtransformed[i],alpha_posterior_sd_backtransformed[i]),file = OUTPUT_ALPHA)
+				print("%s\t%f\t%f" %(covariate_names[i],alpha_posterior_backtransformed[i],alpha_posterior_sd_backtransformed[i]),file = OUTPUT_ALPHA)
 
 			OUTPUT_BETA = open("output/" + args.output+"_MAPPING_beta.txt","w")
 			print("%s\t%s\t%s\t%s\t%s" %("kmer_name","kmer_effect","kmer_effect_sd","pip","fdr"),file = OUTPUT_BETA)

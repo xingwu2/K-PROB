@@ -78,7 +78,11 @@ def geweke(x, first=.1, last=.5, intervals=20):
         last_slice = x[int(end - last * (end - start)):]
 
         z = first_slice.mean() - last_slice.mean()
-        z /= np.sqrt(first_slice.var() + last_slice.var())
+        denom = np.sqrt(first_slice.var() + last_slice.var())
+        if denom == 0:
+            z = 0
+        else:
+            z /= denom
 
         zscores.append([start, z])
 
