@@ -14,6 +14,7 @@ import spike_point_mass as sp_pointmass
 import spike_normal as sp_normal
 from scipy.sparse import save_npz
 import scipy.sparse as sp
+from multiprocessing import shared_memory
 
 
 def main():
@@ -138,6 +139,13 @@ def main():
 		C = np.ascontiguousarray(C, dtype=np.float32)
 		y = y.astype(np.float32)
 
+		_shm = shared_memory.SharedMemory(create=True, size=X.nbytes)
+		_Xs = np.ndarray(X.shape, dtype=X.dtype, order='F', buffer=_shm.buf)
+		_Xs[:] = X[:]
+		x_meta = (_shm.name, X.shape, X.dtype.str)
+		n_cols = X.shape[1]
+		X = _Xs
+
 		trace_container = mp.Manager().dict()
 		gamma_container = mp.Manager().dict()
 		beta_container = mp.Manager().dict()
@@ -147,7 +155,7 @@ def main():
 		processes = []
 
 		for num in range(args.num):
-			p = mp.Process(target = sp_normal.sampling,args=(args.verbose,y,C,X,args.s0,args.output,num,trace_container,gamma_container,beta_container,alpha_container,convergence_container,args.pi_b))
+			p = mp.Process(target = sp_normal.sampling,args=(args.verbose,y,C,x_meta,args.s0,args.output,num,trace_container,gamma_container,beta_container,alpha_container,convergence_container,args.pi_b))
 			processes.append(p)
 			p.start()
 
@@ -159,6 +167,7 @@ def main():
 
 		for process in processes:
 			process.join()
+		_shm.close(); _shm.unlink() 
 
 		convergence_all_chains = []
 		alpha_posterior_all_chains = []
@@ -239,7 +248,7 @@ def main():
 
 			OUTPUT_BETA = open("output/" + args.output+"_MAPPING_beta.txt","w")
 			print("%s\t%s\t%s\t%s\t%s" %("kmer_name","kmer_effect","kmer_effect_sd","pip","fdr"),file = OUTPUT_BETA)
-			for i in range(X.shape[1]):
+			for i in range(n_cols):
 				print("%s\t%f\t%f\t%f\t%f" %(sorted_kmer_names[i],sorted_beta[i],sorted_beta_sd[i],sorted_kmer_pip[i],kmer_fdr[i]),file = OUTPUT_BETA)
 
 		else:
@@ -253,7 +262,7 @@ def main():
 
 			OUTPUT_BETA = open("output/" + args.output+"_MAPPING_beta.txt","w")
 			print("%s\t%s\t%s\t%s\t%s" %("kmer_name","kmer_effect","kmer_effect_sd","pip","fdr"),file = OUTPUT_BETA)
-			for i in range(X.shape[1]):
+			for i in range(n_cols):
 				print("%s\t%s\t%s\t%s\t%s" %(kmer_names[i],"NA","NA","NA","NA"),file = OUTPUT_BETA)
 
 	else:

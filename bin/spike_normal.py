@@ -10,6 +10,8 @@ import gc
 import sys
 from scipy.sparse import csc_matrix
 from numba import njit
+from multiprocessing import shared_memory
+
 
 import utility_functions as uf
 
@@ -234,7 +236,10 @@ def sample_beta_numba_optimized(y, C_alpha, H_beta, H, beta, gamma, sigma_0, sig
 
 
 
-def sampling(verbose,y,C,H,sig0_initiate,prefix,num,trace_container,gamma_container,beta_container,alpha_container,convergence_container,pi_b):
+def sampling(verbose,y,C,x_meta,sig0_initiate,prefix,num,trace_container,gamma_container,beta_container,alpha_container,convergence_container,pi_b):
+
+	_shm = shared_memory.SharedMemory(name=x_meta[0], track=False)
+	H = np.ndarray(x_meta[1], dtype=np.dtype(x_meta[2]), order='F', buffer=_shm.buf)
 
 	## set random seed for the process
 	np.random.seed(int(time.time()) + os.getpid())
@@ -438,4 +443,6 @@ def sampling(verbose,y,C,H,sig0_initiate,prefix,num,trace_container,gamma_contai
 								'M2':[]}
 
 		gamma_container[num] = []
+	
+	_shm.close()
 
