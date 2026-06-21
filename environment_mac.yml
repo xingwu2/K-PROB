@@ -1,4 +1,4 @@
-name: krispr
+name: K-PROB
 channels:
   - bioconda
   - defaults
