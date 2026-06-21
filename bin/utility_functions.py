@@ -398,17 +398,18 @@ def read_input_files_baseline(geno, kmer, pheno, covar):
 		C_values_scaled = C_values_scaled[:, keep_covar]
 		covariate_names = covariate_names[keep_covar]
 		covar_sds_kept = C_values_sds[keep_covar]
-		covar_means_kept = C_values_means[keep_covar]
              
 		C = np.hstack((C_intercept, C_values_scaled))
 		covariate_names = np.hstack((C_intercept_name, covariate_names))
+		C_col_sds = np.concatenate(([1.0], covar_sds_kept)) 
 	else:
 		C = C_intercept
 		covariate_names = np.array(C_intercept_name)
+		C_col_sds = np.array([1.0])
 
 	print("after C standardization:",C[:,1:].mean(axis=0),C[:,1:].std(axis=0,ddof=0))
 
-	return(y,y_sd,data_standardized,col_sds_safe,kmer_names,C,covariate_names)
+	return(y,y_sd,data_standardized,col_sds_safe,kmer_names,C,covariate_names,C_col_sds)
 
 def read_input_files_allelic(geno, kmer, pheno, covar):
 
@@ -463,13 +464,26 @@ def read_input_files_allelic(geno, kmer, pheno, covar):
 		if sum(C_df["Allele"].values != y_df["Allele"].values) > 0:
 			sys.exit("ERROR: The allele names in the covariate table do not match the allele names in the phenotype table. Please double check! ")
              
-		C = np.hstack((C_intercept, C_values))
+		C_values_means = C_values.mean(axis=0)
+		C_values_sds = C_values.std(axis=0, ddof=0)
+		C_values_sds_safe = np.where(C_values_sds == 0, 1.0, C_values_sds)
+		C_values_scaled = ((C_values - C_values_means) / C_values_sds_safe).astype(np.float32)
+		
+		keep_covar = (C_values_sds != 0)
+		C_values_scaled = C_values_scaled[:, keep_covar]
+		covariate_names = covariate_names[keep_covar]
+		covar_sds_kept = C_values_sds[keep_covar]
+             
+		C = np.hstack((C_intercept, C_values_scaled))
 		covariate_names = np.hstack((C_intercept_name, covariate_names))
+		C_col_sds = np.concatenate(([1.0], covar_sds_kept)) 
+		
 	else:
 		C = C_intercept
 		covariate_names = np.array(C_intercept_name)
+		C_col_sds = np.array([1.0])
 	
-	return(y,y_sd,data_standardized,col_sds_safe,kmer_names,C,covariate_names)
+	return(y,y_sd,data_standardized,col_sds_safe,kmer_names,C,covariate_names,C_col_sds)
 
 def fdr_calculation(kmer_pip_median):
 

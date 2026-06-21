@@ -130,9 +130,9 @@ def main():
 		## The following script will perform the mapping algorithm to identify the causal 
 
 		if args.model == 1: ## gene expression baseline mapping
-			y,y_sd,X,col_sd,kmer_names,C,covariate_names = uf.read_input_files_baseline(args.geno,args.kmer_cluster,args.pheno,args.covar)
+			y,y_sd,X,col_sd,kmer_names,C,covariate_names,covariates_sd = uf.read_input_files_baseline(args.geno,args.kmer_cluster,args.pheno,args.covar)
 		elif args.model == 2: ## allelic deviation mapping
-			y,y_sd,X,col_sd,kmer_names,C,covariate_names = uf.read_input_files_allelic(args.geno,args.kmer_cluster,args.pheno,args.covar)
+			y,y_sd,X,col_sd,kmer_names,C,covariate_names,covariates_sd = uf.read_input_files_allelic(args.geno,args.kmer_cluster,args.pheno,args.covar)
 
 		X = np.asfortranarray(X, dtype=np.float32)
 		C = np.ascontiguousarray(C, dtype=np.float32)
@@ -168,7 +168,7 @@ def main():
 		gamma_all_chains = []
 		trace_posterior_all_chains = []
 
-		column_names = "sigma_e\tlarge_beta_ratio\talpha_norm_2\tbeta_norm_2\ttotal_heritability\tsum_gamma"
+		column_names = ["sigma_e","large_beta_ratio","alpha_norm_2","beta_norm_2","total_heritability","sum_gamma"]
 
 		for num in range(args.num):
 			convergence_all_chains.append(convergence_container[num])
@@ -209,7 +209,15 @@ def main():
 
 			beta_posterior_sd = np.sqrt(beta_posterior_M2/(N_beta-1))
 			alpha_posterior_sd = np.sqrt(alpha_posterior_M2/(N_alpha-1))
-			np.savetxt(args.output+"_model_trace.txt",trace_posterior_all_chains,delimiter="\t",header=column_names)
+			np.savetxt(args.output+"_model_trace.txt",trace_posterior_all_chains,delimiter="\t",header="\t".join(column_names))
+
+			## backtransform the beta and alpha to the orignal scale
+			beta_posterior_backtransformed = beta_posterior * y_sd / col_sd
+			beta_posterior_sd_backtransformed = beta_posterior_sd * y_sd / col_sd
+			alpha_posterior_backtransformed = alpha_posterior * y_sd / covariates_sd
+			alpha_posterior_sd_backtransformed = alpha_posterior_sd * y_sd / covariates_sd
+
+
 
 			## calculate FDR for different kmers
 			index,kmer_fdr = uf.fdr_calculation(pip)
@@ -217,8 +225,8 @@ def main():
 			## sort pip, kmer names, beta and beta_sd based on pip
 			sorted_kmer_names = [kmer_names[i] for i in index]
 			sorted_kmer_pip = pip[index]
-			sorted_beta = beta_posterior[index]
-			sorted_beta_sd = beta_posterior_sd[index]
+			sorted_beta = beta_posterior_backtransformed[index]
+			sorted_beta_sd = beta_posterior_sd_backtransformed[index]
 
 
 			OUTPUT_TRACE = open("output/" + args.output+"_MAPPING_param.txt","w")
@@ -227,7 +235,7 @@ def main():
 					
 			OUTPUT_ALPHA = open("output/" + args.output+"_MAPPING_alpha.txt","w")
 			for i in range(len(alpha_posterior)):
-				print("%f\t%f" %(alpha_posterior[i],alpha_posterior_sd[i]),file = OUTPUT_ALPHA)
+				print("%f\t%f" %(alpha_posterior_backtransformed[i],alpha_posterior_sd_backtransformed[i]),file = OUTPUT_ALPHA)
 
 			OUTPUT_BETA = open("output/" + args.output+"_MAPPING_beta.txt","w")
 			print("%s\t%s\t%s\t%s\t%s" %("kmer_name","kmer_effect","kmer_effect_sd","pip","fdr"),file = OUTPUT_BETA)
