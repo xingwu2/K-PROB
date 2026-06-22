@@ -48,7 +48,18 @@ def parse_arguments():
 	parser_count.add_argument('-s', type=float, action='store', dest='similarity', default=1.0, help="number of mismatches allowed in the kmer for cd-ht-est to cluster unique kmers. Default: 1")
 
 	# ---------------------------------------------------------
-	# SUBCOMMAND 2: DECOMPOSE
+	# SUBCOMMAND 2: PROJECTION
+	# ---------------------------------------------------------
+	parser_projection = subparsers.add_parser('projection', parents=[base_parser], help="Run the projection task")
+	parser_projection.add_argument('-f', type=str, action='store', dest='sequence', required=True, help='the multi-fasta file')
+	parser_projection.add_argument('-k', type=int, action='store', dest='k', required=True, help="size of the kmer")
+	parser_projection.add_argument('-g', type=int, action='store', dest='gap', default=0, help="nucleotide gap between 2 kmers. Default: 0")
+	parser_projection.add_argument('-c', type=str, action='store', dest="kept_clusters", required=True, help="the reference kmer cluster file for projection (ex. output/COUNT_kmer_cluster_{cutoff}.txt)")
+	parser_projection.add_argument('-q', type=str, action='store', dest="unique", required=True, help="all unique kmer sequences from the reference (ex. output/COUNT_COUNT_unique_kmers.fa)")
+	parser_projection.add_argument('-p', type=str, action='store', dest="group", required=True, help="unique kmer - kmer cluster assignment of the reference (ex. output/COUNT_kmer_clusters.clstr)")
+
+	# ---------------------------------------------------------
+	# SUBCOMMAND 3: DECOMPOSE
 	# ---------------------------------------------------------
 	parser_decompose = subparsers.add_parser('decompose', parents=[base_parser], help="Run the decompose task")
 	parser_decompose.add_argument('-d', type=str, action='store', dest='dm', required=True, help="clustered dosage matrix .npz file from the count task")
@@ -59,7 +70,7 @@ def parse_arguments():
 
 
 	# ---------------------------------------------------------
-	# SUBCOMMAND 3: MAPPING
+	# SUBCOMMAND 4: MAPPING
 	# ---------------------------------------------------------
 	parser_mapping = subparsers.add_parser('mapping', parents=[base_parser], help="Run the mapping task")
 	parser_mapping.add_argument('-x', type=str, action='store', dest='geno', required=True, help="input matrix (X)")
@@ -331,6 +342,105 @@ def generation_cluster_DM_optimized(dosage,output):
 	print(f"Finished calculating kmer cluster dosage matrix in {elapsed_time:.2f} seconds.")
 
 	return(cluster_dosage,cluster_names)
+
+
+def read_kmer_cluster_file(kept_clusters,unique,group):
+	fa_cluster = {} ## dict for unqiue kmer -> cluster assignment
+
+	group_ = {}
+	unique_ = {} 
+
+	with open(unique,"r") as UNIQUE:
+		for line in UNIQUE:
+			line = line.strip("\n")
+			## search for > for the header
+			if line.startswith(">"):
+				name = line[1:]
+				sequence = next(UNIQUE).strip("\n")
+				unique_[sequence] = name
+
+			else:
+				sys.exit("ERROR: The fasta file format for the unique kmer is incorrect. No header line found before sequence.")
+	print("%i unique kmer sequences loaded." % len(unique_))
+
+	with open(group,"r") as GROUP:
+		for line in GROUP:
+			line = line.strip("\n")
+			## search for > for the header
+			if line.startswith(">"):
+				cluster_name = line[1:]
+				cluster_name = cluster_name.replace(" ", "_")
+			else:
+				match = re.search(r"(kmer_\d+)",line)
+				if match:
+					group_[match.group(1)] = cluster_name
+				else:
+					sys.exit("ERROR: incorrect regex.")
+	
+	print("%i  kmer clusters loaded." % len(set(group_.values())))
+
+	for sequence in unique_:
+		fa_cluster[sequence] = group_[unique_[sequence]]
+
+	kept = set()
+	with open(kept_clusters, "r") as KEPT:
+		for line in KEPT:
+			line = line.strip("\n")
+			kept.add(line)
+	
+	fa_cluster = {s: c for s, c in fa_cluster.items() if c in kept}
+	
+	return(fa_cluster)
+
+def generation_cluster_DM_from_projection(sequences,reference_fa_clusters,reference_clusters,k,n):
+	start_time = time.time()
+
+	kept = []
+	with open(reference_clusters, "r") as REFERENCE:
+		for line in REFERENCE:
+			line = line.strip("\n")
+			kept.append(line)
+
+	r = len(sequences)
+	c = len(kept)
+	sequence_names = list(sequences.keys())
+	cluster_index_dict = {v: i for i, v in enumerate(kept)}
+
+	# --- MEMORY OPTIMIZATION ---
+	# 'H' = uint16 (Max count of 65,535 per kmer)
+	# 'i' = int32  (Max 2.14 billion unique kmers/columns)
+	# 'q' = int64  (Prevents matrix collapse when total non-zero elements > 2.14 billion)
+	data = array.array('H')     
+	indices = array.array('i')
+	indptr = array.array('q', [0]) # Always starts at 0
+
+	for i, seq_name in enumerate(sequence_names):
+		if i > 0 and i % 1000 == 0:
+			print(f"Processed {i}/{r} sequences...")
+		
+		sequence = sequences[seq_name]
+		cluster_counts = defaultdict(int)
+
+		for s in range(0, len(sequence) - k + 1, n + 1):
+			cl = reference_fa_clusters.get(sequence[s:s+k])
+			if cl is not None:
+				cluster_counts[cluster_index_dict[cl]] += 1
+			
+		for idx, count in cluster_counts.items():
+			indices.append(idx)
+			data.append(count)
+		indptr.append(len(indices))
+
+	np_data = np.frombuffer(data, dtype=np.uint16)
+	np_indices = np.frombuffer(indices, dtype=np.int32)
+	np_indptr = np.frombuffer(indptr, dtype=np.int64)
+
+	del data, indices, indptr
+	
+	projected_matrix = csr_matrix((np_data, np_indices, np_indptr), shape=(r, c))
+	elapsed_time = time.time() - start_time
+	print(f"Finished projecting unique kmer dosage onto the reference cluster matrix for all sequences in {elapsed_time:.2f} seconds.")
+	return(projected_matrix,sequence_names,kept)
 
 def read_input_files_baseline(geno, kmer, pheno, covar):
 

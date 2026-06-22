@@ -113,6 +113,59 @@ def main():
 			print(f"Saving sparse unique kmer dosage matrix to {output_filename}...")
 			save_npz(output_filename, dosage.tocsr())
 
+	elif args.task == "projection":
+		## This section will read a new fasta file, count the unique kmers and then project them onto an existing kmer clusters 
+		## For example, the kmer clusters are generated from species 1 genome, and then we can project the kmers from species 2 onto the existing clusters so that 
+		## they have the same set of kmer clusters. This is useful for cross-species comparison of kmer effects on gene expression.
+
+		sequences = uf.read_fasta_file(args.sequence)
+
+		## gather basic information about the sequences, such as sequence length, GC content and N content
+
+		GC_content, CG_density, CHG_density, CHH_density, length,low_complexity_fraction,CG_obs_exp,CHG_obs_exp,CHH_obs_exp = uf.compute_sequence_context_doublestrand(sequences)
+
+		df = pd.DataFrame({
+			'Length': length,
+			'GC_content': GC_content,
+			'CG_density': CG_density,
+			'CHG_density': CHG_density,
+			'CHH_density': CHH_density,
+			'CG_obs_exp': CG_obs_exp,
+			'CHG_obs_exp': CHG_obs_exp,
+			'CHH_obs_exp': CHH_obs_exp,
+			'Low_complexity_fraction': low_complexity_fraction
+		})
+		df = df.reset_index(names='Allele')
+		df.to_csv("output/" + args.output + "_PROJECTION_allele_level_promoter_features.csv", index=False)
+
+		## identify unique kmers from the sequences and sort Kmers based on frequency and lexicography
+
+		kmer_counts = uf.count_kmers_from_seq(sequences,args.k,args.gap)
+		print("Finished counting unique k-mers. Identified %d unique kmers in total" %(len(kmer_counts)))
+
+		sorted_kmers = sorted(kmer_counts.keys(), key=lambda km: (-kmer_counts[km], km))
+		
+		OUTPUT_UNIQUE_KMERS = open("output/" + args.output+"_PROJECTION_unique_kmers.fa","w")
+		for i, kmer in enumerate(sorted_kmers):
+			print("%s\n%s" %(">kmer_"+str(i),sorted_kmers[i]),file = OUTPUT_UNIQUE_KMERS)
+		OUTPUT_UNIQUE_KMERS.close()
+
+		## read the existing kmer clusters and assign the new kmers to the existing clusters based on exact match. If a kmer cannot be assigned to any existing cluster, then it will be discarded.
+
+		reference_fa_clusters = uf.read_kmer_cluster_file(args.kept_clusters,args.unique,args.group)
+		
+		projected_cluster_dosage,sequence_names,cluster_names = uf.generation_cluster_DM_from_projection(sequences,reference_fa_clusters,args.kept_clusters,args.k,args.gap)
+
+		## write the dosage matrix to a npz file
+		dm_matrix_filename = f"output/{args.output}_PROJECTION_Cluster_DosageMatrix.npz"
+		sp.save_npz(dm_matrix_filename, projected_cluster_dosage)
+
+		with open(f"output/{args.output}_PROJECTION_gene_alleles.txt", 'w') as f:
+			f.write("\n".join(sequence_names) + "\n")
+		
+		with open(f"output/{args.output}_PROJECTION_kmer_cluster.txt", 'w') as f:
+			f.write("\n".join(cluster_names) + "\n")
+		
 	elif args.task == "decompose":
 		## the following section will decompose gene expression into different components
 		## y_ij = alpha_i + gamma_ij + delta_ij indicating gene-specific baseline expression, individual specific expression and allelic difference. 
