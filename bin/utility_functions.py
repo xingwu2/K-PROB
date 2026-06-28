@@ -67,7 +67,7 @@ def parse_arguments():
 	parser_decompose.add_argument('-r', type=str, action='store', dest='kmer_cluster', required=True, help="kmer_cluster_{cutoff}.txt from the count task")
 	parser_decompose.add_argument('-p', type=str, action='store', dest='promoter_feature', required=True, help="allele-level promoter feature table")
 	parser_decompose.add_argument('-e', type=str, action='store', dest='expression', required=True, help="gene expression table")
-
+	parser_decompose.add_argument('-v', type=str, action='store', dest='variable', required=True, help="highly variable gene list")
 
 	# ---------------------------------------------------------
 	# SUBCOMMAND 4: MAPPING
@@ -876,6 +876,143 @@ def expression_decompose_memory_optimized(dm, allele, kmer_cluster, expression, 
 
 	return (expression_promoter_df,gene_level_metadata,promoter_feature_cols)
 
+
+def expression_decompose_memory_optimized_highly_variable(dm, allele, kmer_cluster, expression, promoter_feature,variable,output):
+	## load expression data, genotype data and gene features
+	mat = load_npz(dm)
+	alleles = pd.read_csv(allele, header=None, names=["Allele"])
+	kmer_clusters = pd.read_csv(kmer_cluster, header=None)[0].tolist()
+	highly_variable_genes = pd.read_csv(variable, header=None)[0].tolist()
+
+	dosage_df = pd.DataFrame.sparse.from_spmatrix(mat, columns=kmer_clusters)
+	dosage_df.index = alleles["Allele"]
+	
+	# Safely renamed to prevent overwriting the string arguments
+	expr_df = pd.read_csv(expression, sep=",")
+	promoter_feat_df = pd.read_csv(promoter_feature, sep=",")
+
+	## first run some QC on the input data
+	expression_column_names = expr_df.columns.to_list()
+	if expression_column_names != ["Individual", "Gene", "Allele", "Expression"]:
+		sys.exit("ERROR: The expression table should have the EXACT following columns and column names: Individual, Gene, Allele, Expression")
+	if sum(promoter_feat_df["Allele"] != expr_df["Allele"]) > 0:
+		sys.exit("ERROR: The gene-allele names in the promoter feature table do not match the gene-allele names in the expression table. Please double check! ")
+	if dosage_df.index.to_list() != expr_df["Allele"].tolist():
+		sys.exit("ERROR: The gene-allele names in the dosage matrix do not match the gene-allele names in the expression table. Please double check! ")
+	
+	## concat expression and promoter feature
+	expression_promoter_df = pd.concat([expr_df, promoter_feat_df.drop(columns=["Allele"])], axis=1)
+
+	print("Finished QC and all tables are in order. Starting expression decomposition...\n")
+
+	## expression decompose y_ij = \mu + \alpha_i  + \gamma_j + \delta_ij 
+	expression_mu = expression_promoter_df["Expression"].mean()
+	expression_promoter_df['alpha_i'] = expression_promoter_df.groupby('Gene',sort = False)['Expression'].transform('mean') - expression_mu
+	expression_promoter_df['gamma_j'] = expression_promoter_df.groupby('Individual',sort = False)['Expression'].transform('mean') - expression_mu
+	expression_promoter_df['delta_ij'] = expression_promoter_df['Expression'] - expression_mu - expression_promoter_df['alpha_i'] - expression_promoter_df['gamma_j']
+	
+	#expression_promoter_df['per_genes_sd'] = expression_promoter_df.groupby("Gene",sort = False)["delta_ij"].transform("std")
+	#global_sd = expression_promoter_df.groupby("Gene",sort = False)['per_genes_sd'].first().median()
+	#safe_sd = expression_promoter_df["per_genes_sd"].fillna(global_sd).clip(lower=global_sd*0.1)
+	#expression_promoter_df['delta_ij_scaled'] = expression_promoter_df['delta_ij'] / safe_sd
+
+	gene_array = expression_promoter_df['Gene'].values
+	ind_array = expression_promoter_df['Individual'].values
+
+	n_cols = dosage_df.shape[1]
+
+	## Second, calculate the baseline expression and gene-level promoter features for all genes
+
+	unique_genes_sorted, idx = np.unique(expression_promoter_df['Gene'].values,return_index=True)
+	unique_genes_original_order = unique_genes_sorted[np.argsort(idx)]
+
+	num_genes = len(unique_genes_original_order)
+
+	hdf5_X_baseline = "output/" + output + "_DECOMPOSE_kmer_cluster_baseline.h5"
+	
+	with h5py.File(hdf5_X_baseline, "w") as f:
+		dset = f.create_dataset("X_baseline", shape=(num_genes, n_cols), dtype='float32')
+		
+		chunk_size = 200 # Safely processes 200 kmers at a time
+
+		for i in range(0, n_cols, chunk_size):
+			# 1. Slice the specific 200 columns
+			kmer_chunk_names = kmer_clusters[i : i + chunk_size]
+			sparse_chunk = dosage_df[kmer_chunk_names]
+			
+			# 2. Convert ONLY this small chunk to dense RAM
+			dense_chunk = sparse_chunk.sparse.to_dense().astype(np.float32)			
+			
+			# 3. Calculate means just for this chunk		
+			X_baseline_chunk = dense_chunk.groupby(gene_array,sort = False).mean()
+			
+			# 4. Write the result directly into the HDF5 file and cast to float32
+			dset[:, i : i + chunk_size] = X_baseline_chunk.values
+			
+			print(f"Processed columns {i} to {min(i + chunk_size, n_cols)} out of {n_cols}")
+	
+	print("\nFinished calculating the baseline centered kmer matrix. Saved safely to disk!\n")
+
+	promoter_feature_cols = [col for col in promoter_feat_df.columns if col != "Allele"]
+	cols_to_aggregate = ['alpha_i'] + promoter_feature_cols
+	gene_level_metadata = expression_promoter_df.groupby('Gene',sort = False)[cols_to_aggregate].mean()
+	
+	if gene_level_metadata.index.to_list() != unique_genes_original_order.tolist():
+		sys.exit("ERROR: The gene names in the collapsed metadata do not match the gene names in the X_baseline matrix. Please double check!")
+	
+	gene_level_metadata = gene_level_metadata.reset_index()
+	
+	print("Finished calculating the gene baseline expression and gene-level promoter features.\n")
+
+	## Third, calculate the allelic deviation and double center the dosage matrix for only highly variable genes
+
+	## filter for highly variable genes
+	expression_promoter_df_hv = expression_promoter_df[expression_promoter_df['Allele'].isin(highly_variable_genes)]
+	nrows_hv = expression_promoter_df_hv.shape[0]
+	row_indexer = dosage_df.index.get_indexer(expression_promoter_df_hv["Allele"])
+
+	print("Finished calculating the allelic deviation of the selected subset. Starting chunked double-centering to HDF5...\n")
+	
+	# Define your output file
+	hdf5_X_double_centered = "output/" + output + "_DECOMPOSE_kmer_cluster_allelic.h5"
+	
+	with h5py.File(hdf5_X_double_centered, "w") as f:
+		dset = f.create_dataset("X_allelic", shape=(nrows_hv, n_cols), dtype='float32')
+		
+		chunk_size = 200 # Safely processes 200 kmers at a time
+		
+		for i in range(0, n_cols, chunk_size):
+			# 1. Slice the specific 200 columns
+			kmer_chunk_names = kmer_clusters[i : i + chunk_size]
+			sparse_chunk = dosage_df[kmer_chunk_names]
+			
+			# 2. Convert ONLY this small chunk to dense RAM
+			dense_chunk = sparse_chunk.sparse.to_dense().astype(np.float32)
+			
+			# 3. Calculate means just for this chunk
+			kmer_mu = dense_chunk.mean()
+			gene_means = dense_chunk.groupby(gene_array,sort = False).mean()
+			kmer_gene_mean = gene_means.loc[gene_array].values
+
+			ind_means = dense_chunk.groupby(ind_array,sort = False).mean()
+			kmer_ind_mean = ind_means.loc[ind_array].values
+			
+			# 4. Double center the chunk
+			dense_arr = dense_chunk.values
+			dense_arr -= kmer_gene_mean
+			dense_arr -= kmer_ind_mean
+			dense_arr += kmer_mu.values
+
+			final_chunk = dense_arr[row_indexer]
+
+			# 5. Write the result directly into the HDF5 file and cast to float32
+			dset[:, i : i + chunk_size] = final_chunk
+			
+			print(f"Processed columns {i} to {min(i + chunk_size, n_cols)} out of {n_cols}")
+	
+	print("\nFinished calculating the double centered kmer matrix. Saved safely to disk!\n")
+
+	return (expression_promoter_df,expression_promoter_df_hv,gene_level_metadata,promoter_feature_cols)
 
 
 
