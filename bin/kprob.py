@@ -38,12 +38,12 @@ def main():
 		df = pd.DataFrame({
 			'Length': length,
 			'GC_content': GC_content,
-			'CG_density': CG_density,
-			'CHG_density': CHG_density,
-			'CHH_density': CHH_density,
+			#'CG_density': CG_density,
+			#'CHG_density': CHG_density,
+			#'CHH_density': CHH_density,
 			'CG_obs_exp': CG_obs_exp,
-			'CHG_obs_exp': CHG_obs_exp,
-			'CHH_obs_exp': CHH_obs_exp,
+			#'CHG_obs_exp': CHG_obs_exp,
+			#'CHH_obs_exp': CHH_obs_exp,
 			'Low_complexity_fraction': low_complexity_fraction
 		})
 		df = df.reset_index(names='Allele')
