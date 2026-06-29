@@ -170,10 +170,11 @@ def main():
 		## the following section will decompose gene expression into different components
 		## y_ij = alpha_i + gamma_ij + delta_ij indicating gene-specific baseline expression, individual specific expression and allelic difference. 
 
-		expression_promoter_df,expression_promoter_df_hv,gene_level_metadata,promoter_feature_cols = uf.expression_decompose_memory_optimized_highly_variable(args.dm,args.allele,args.kmer_cluster,args.expression,args.promoter_feature,args.variable,args.output)
+		#expression_promoter_df,expression_promoter_df_hv,gene_level_metadata,promoter_feature_cols = uf.expression_decompose_memory_optimized_highly_variable(args.dm,args.allele,args.kmer_cluster,args.expression,args.promoter_feature,args.variable,args.output)
+		expression_promoter_df,gene_level_metadata,promoter_feature_cols = uf.expression_decompose_memory_optimized(args.dm,args.allele,args.kmer_cluster,args.expression,args.promoter_feature,args.output)
 		expression_promoter_df.to_csv("output/"+args.output+"_DECOMPOSE_expression_promoter_decomposed_all.csv",index=False)
 		#expression_promoter_df_hv.to_csv("output/"+args.output+"_DECOMPOSE_expression_promoter_decomposed_selected.csv",index=False)
-		expression_promoter_df_hv[["Allele", "delta_ij"]].to_csv("output/"+args.output+"_DECOMPOSE_gene_expression_allelic_deviation.csv",index=False)
+		expression_promoter_df[["Allele", "delta_ij"]].to_csv("output/"+args.output+"_DECOMPOSE_gene_expression_allelic_deviation.csv",index=False)
 		gene_level_metadata.to_csv("output/"+ args.output+"_DECOMPOSE_gene_level_info_all.csv",index=False)
 		gene_level_metadata[["Gene","alpha_i"]].to_csv("output/" + args.output+"_DECOMPOSE_gene_expression_baseline.csv",index=False)
 		gene_level_metadata[["Gene"]+promoter_feature_cols].to_csv("output/" + args.output+"_DECOMPOSE_gene_level_promoter_features.csv",index=False)

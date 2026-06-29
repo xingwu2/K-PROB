@@ -67,7 +67,7 @@ def parse_arguments():
 	parser_decompose.add_argument('-r', type=str, action='store', dest='kmer_cluster', required=True, help="kmer_cluster_{cutoff}.txt from the count task")
 	parser_decompose.add_argument('-p', type=str, action='store', dest='promoter_feature', required=True, help="allele-level promoter feature table")
 	parser_decompose.add_argument('-e', type=str, action='store', dest='expression', required=True, help="gene expression table")
-	parser_decompose.add_argument('-v', type=str, action='store', dest='variable', required=True, help="highly variable gene list")
+	#parser_decompose.add_argument('-v', type=str, action='store', dest='variable', required=True, help="highly variable gene list")
 
 	# ---------------------------------------------------------
 	# SUBCOMMAND 4: MAPPING
