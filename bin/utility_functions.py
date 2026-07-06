@@ -82,7 +82,16 @@ def parse_arguments():
 	parser_mapping.add_argument('-b', type=float, action='store', dest='pi_b', default=0.1, help="proportion of the kmer clusters are causal. Default: 0.1")
 	parser_mapping.add_argument('-n', type=int, action='store', dest='num', default=8, help="number of threads. Recommend at least 5. Default: 8)")
 	parser_mapping.add_argument('-v', type=int, action='store', default=0, dest='verbose',help="verbose levels 0: no stdout; 1: minimal; 2: detailed. Default: 0)")
+
+	# ---------------------------------------------------------
+	# SUBCOMMAND 5: PREDICT
+	# ---------------------------------------------------------
+	parser_predict = subparsers.add_parser('predict', parents=[base_parser], help="Run the prediction task")
+	parser_predict.add_argument('-x', type=str, action='store', dest='geno', required=True, help="input matrix (X)")
+	parser_predict.add_argument('-r', type=str, action='store', dest='kmer_cluster', required=True, help="kmer_cluster_{cutoff}.txt from the count task")
+	parser_predict.add_argument('-e', type=str, action='store', dest='beta', required=True, help="the kmer effect sizes from the mapping task")
 	args = parser.parse_args()
+
 	return(args)
 
 def read_fasta_file(file):
@@ -1013,6 +1022,37 @@ def expression_decompose_memory_optimized_highly_variable(dm, allele, kmer_clust
 	print("\nFinished calculating the double centered kmer matrix. Saved safely to disk!\n")
 
 	return (expression_promoter_df,expression_promoter_df_hv,gene_level_metadata,promoter_feature_cols)
+
+def predict_expression(geno,kmer,beta):
+	
+	mat = load_npz(geno)
+
+	## load the kmer names
+	kmer_names = []
+	with open(str(kmer),"r") as KMER:
+		for line in KMER:
+			line = line.strip("\n")
+			kmer_names.append(line)
+	
+	#dosage_df = pd.DataFrame.sparse.from_spmatrix(mat, columns=kmer_names)
+
+	
+	if len(kmer_names) != mat.shape[1]:
+		sys.exit(f"ERROR: Kmer list length ({len(kmer_names)}) does not match X columns ({mat.shape[1]})")
+
+	beta_file = pd.read_csv(beta, sep="\t")
+
+	beta_file_ordered = beta_file.set_index("kmer_name").reindex(kmer_names).reset_index()
+
+	beta_values = beta_file_ordered["kmer_effect"].values
+	beta_names = beta_file_ordered["kmer_name"].values
+
+	if beta_names.tolist() != kmer_names:
+		sys.exit("ERROR: something is wrong with the beta kmer names with the kmer cluster names. Please double check! ")
+	
+	predicted_expression = mat.dot(beta_values)
+
+	return(predicted_expression)
 
 
 

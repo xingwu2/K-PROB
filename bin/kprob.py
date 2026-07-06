@@ -319,6 +319,18 @@ def main():
 			print("%s\t%s\t%s\t%s\t%s" %("kmer_name","kmer_effect","kmer_effect_sd","pip","fdr"),file = OUTPUT_BETA)
 			for i in range(n_cols):
 				print("%s\t%s\t%s\t%s\t%s" %(kmer_names[i],"NA","NA","NA","NA"),file = OUTPUT_BETA)
+		
+
+
+	elif args.task == "predict":
+		## The following script will perform the prediction task based on the beta values from the mapping task and the kmer dosage matrix from the count task
+
+		y_pred = uf.predict_expression(args.geno,args.kmer_cluster,args.beta)
+
+		OUTPUT_PREDICTION = open("output/" + args.output+"_PREDICT_expression.txt","w")
+		print("%s" %("predicted_expression"),file = OUTPUT_PREDICTION)
+		for i in range(len(y_pred)):
+			print("%f" %(y_pred[i]),file = OUTPUT_PREDICTION)
 
 	else:
 		sys.exit("ERROR: Please provide the name of the task: count, decompose, or mapping. Details see the manual (-h).")
