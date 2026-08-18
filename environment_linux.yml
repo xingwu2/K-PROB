@@ -56,4 +56,7 @@ dependencies:
   - zstd=1.5.7=hb8e6e7a_1
   - pip:
       - h5py==3.16.0
+      - packaging==26.3
+      - patsy==1.0.2
       - pydustmasker==2.0.0
+      - statsmodels==0.14.6
