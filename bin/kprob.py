@@ -332,6 +332,24 @@ def main():
 		for i in range(len(y_pred)):
 			print("%f" %(y_pred[i]),file = OUTPUT_PREDICTION)
 
+	elif args.task == "funsite":
+		## The following script will perform the functional site analysis based on the beta values from the mapping task and the kmer dosage matrix from the count task
+
+		sig_kmer_summary,zscores_functional,genome_wide_R,R_allelic,B_presence, P_presence, Z_presence,genes_presence = uf.functional_site_analysis(args.dm,args.beta,args.kmer_cluster,args.allele,args.expression)
+		kmer_names = sig_kmer_summary["kmer"].tolist()
+		prefix = "output/" + args.output + "_FUNSITE_"
+		sig_kmer_summary.to_csv(prefix + "significant_kmer_summary.txt", sep="\t", index=False)
+		zscores_functional.to_csv(prefix + "functional_zscores.csv", index_label="Gene")
+
+		## raw per-gene regression results, all testable pairs (for re-thresholding)
+		pd.DataFrame(B_presence, index=genes_presence, columns=kmer_names).to_csv(prefix + "marginal_beta_matrix.csv", index_label="Gene")
+		pd.DataFrame(P_presence, index=genes_presence, columns=kmer_names).to_csv(prefix + "marginal_pvalue_matrix.csv", index_label="Gene")
+		pd.DataFrame(Z_presence, index=genes_presence, columns=kmer_names).to_csv(prefix + "marginal_zscore_matrix.csv", index_label="Gene")
+
+		## LD among significant kmers
+		pd.DataFrame(genome_wide_R, index=kmer_names, columns=kmer_names).to_csv(prefix + "kmer_LD_genomewide.csv")
+		pd.DataFrame(R_allelic,     index=kmer_names, columns=kmer_names).to_csv(prefix + "kmer_LD_allelic.csv")
+
 	else:
 		sys.exit("ERROR: Please provide the name of the task: count, decompose, or mapping. Details see the manual (-h).")
 

@@ -16,6 +16,8 @@ from collections import defaultdict
 from scipy.sparse import coo_matrix, csr_matrix, csc_matrix, lil_matrix, save_npz, load_npz
 import pydustmasker
 import h5py
+from statsmodels.stats.multitest import multipletests
+from scipy import stats
 
 import geweke
 
@@ -90,6 +92,17 @@ def parse_arguments():
 	parser_predict.add_argument('-x', type=str, action='store', dest='geno', required=True, help="input matrix (X)")
 	parser_predict.add_argument('-r', type=str, action='store', dest='kmer_cluster', required=True, help="kmer_cluster_{cutoff}.txt from the count task")
 	parser_predict.add_argument('-e', type=str, action='store', dest='beta', required=True, help="the kmer effect sizes from the mapping task")
+
+	# ---------------------------------------------------------
+	# SUBCOMMAND 6: FUNSITE
+	# ---------------------------------------------------------
+	parser_funsite = subparsers.add_parser('funsite', parents=[base_parser], help="Run the functional site identification task")
+	parser_funsite.add_argument('-d', type=str, action='store', dest='dm', required=True, help="clustered dosage matrix .npz file from the count task")
+	parser_funsite.add_argument('-b', type=str, action='store', dest='beta', required=True, help="the kmer effect sizes from the mapping task")
+	parser_funsite.add_argument('-r', type=str, action='store', dest='kmer_cluster', required=True, help="kmer_cluster_{cutoff}.txt from the count task")
+	parser_funsite.add_argument('-a', type=str, action='store', dest='allele', required=True, help="gene alleles.txt from the count task")
+	parser_funsite.add_argument('-e', type=str, action='store', dest='expression', required=True, help="gene expression table")
+
 	args = parser.parse_args()
 
 	return(args)
@@ -1054,18 +1067,96 @@ def predict_expression(geno,kmer,beta):
 
 	return(predicted_expression)
 
+def functional_site_analysis(dm_file,beta_file,kmer_cluster_file,allele_file,decompose_file):
+	## load expression data, genotype data and gene features
+	mat = load_npz(dm_file)
+	beta = pd.read_csv(beta_file,sep="\t")
+	alleles = pd.read_csv(allele_file,header=None)[0].tolist()
+	kmer_cluster = pd.read_csv(kmer_cluster_file,header=None)[0].tolist()
 
 
+	# build the dosage matrix
+	dosage_df = pd.DataFrame.sparse.from_spmatrix(mat, columns=kmer_cluster)
+	dosage_df.index = alleles
 
+	sig_kmers = beta[beta["fdr"] < 0.05]["kmer_name"].tolist()
+	sig_kmers_beta = beta[beta["fdr"] < 0.05]["kmer_effect"].to_numpy()
 
+	sig_kmer_dosage = dosage_df[sig_kmers]
 
+	expr_df = pd.read_csv(decompose_file)
 
+	if expr_df["Allele"].tolist() != alleles:
+		sys.exit("ERROR: something is wrong with the allele names in the expression file and the allele file. Please double check! ")
 
+	unique_pangenes = expr_df["Gene"].unique()
 
+	gene_groups = expr_df.groupby("Gene", sort=False).indices 
+	Y_all = expr_df["delta_ij"].to_numpy()
+	X_all = {k: sig_kmer_dosage[k].to_numpy() for k in sig_kmers}
+	Z = np.full((len(unique_pangenes), len(sig_kmers)), np.nan)
+	B = np.full_like(Z, np.nan); P = np.full_like(Z, np.nan)
 
+	for i, g in enumerate(unique_pangenes):
+		idx = gene_groups[g]
+		Y = Y_all[idx]
+		for j, k in enumerate(sig_kmers):
+			X = X_all[k][idx]
+			if len(X) < 5 or len(np.unique(X)) < 2 or len(np.unique(Y)) < 3:      # absent or invariant -> untestable
+				continue
+			res = stats.linregress(X, Y)
+			if not np.isfinite(res.stderr) or res.stderr == 0:
+				continue
+			B[i, j], P[i, j] = res.slope, res.pvalue
+			Z[i, j] = res.slope / res.stderr
 
+	## drop genes with no testable kmer
+	keep = ~np.isnan(P).all(axis=1)
+	P_presence, Z_presence, B_presence = P[keep], Z[keep], B[keep]
+	genes_presence = unique_pangenes[keep]
 
+	## calculate the p value that corresponds to fdr < 0.05 for the functional site analysis
 
+	p_flat = P_presence.ravel()
+	p_flat = p_flat[~np.isnan(p_flat)]
+
+	fdr_flat = multipletests(p_flat, method="fdr_bh")[1]
+
+	sig_mask = fdr_flat < 0.05
+	p_cutoff = p_flat[sig_mask].max() if sig_mask.any() else np.nan
+
+	## calculate what porportion of the significant kmers are functional sites
+
+	P_sig = P_presence <= p_cutoff
+	concordant = np.sign(B_presence) == np.sign(sig_kmers_beta)
+	functional = P_sig &  concordant 
+	discordant = P_sig & ~concordant
+
+    ## per-kmer summary
+	total_testable   = (~np.isnan(P_presence)).sum(axis=0)
+	n_functional     = functional.sum(axis=0)
+	n_discordant     = discordant.sum(axis=0)
+	kmer_summary = pd.DataFrame({
+		"kmer": sig_kmers, "beta": sig_kmers_beta,
+		"n_testable": total_testable, "n_functional": n_functional, "n_discordant": n_discordant,
+		"functional_ratio": n_functional / total_testable,
+		"discordant_ratio": n_discordant / total_testable,
+	})
+
+	## gene x kmer score matrix: Z where functional & concordant, else 0
+	Z_sig  = np.where(functional, Z_presence, 0.0)
+	scores = pd.DataFrame(Z_sig, index=genes_presence, columns=sig_kmers)
+	scores = scores.loc[(scores != 0).any(axis=1)]
+
+	## calculate LD between significant kmers
+
+	Xd = np.column_stack([X_all[k] for k in sig_kmers]).astype(float)   # 54599 x 77
+	genome_wide_R = np.corrcoef(Xd.T)                                                # 77 x 77
+
+	Xc = Xd - pd.DataFrame(Xd).groupby(expr_df["Gene"].to_numpy(), sort=False).transform("mean").to_numpy()
+	R_allelic = np.corrcoef(Xc.T)	
+
+	return(kmer_summary,scores,genome_wide_R,R_allelic,B_presence, P_presence, Z_presence,genes_presence)
 
 
 
